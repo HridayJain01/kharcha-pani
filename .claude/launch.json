@@ -1,0 +1,7 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "kharcha-pani", "runtimeExecutable": "sh", "runtimeArgs": ["-c", "npx vite --port ${PORT:-5174} --strictPort"], "port": 5174, "autoPort": true },
+    { "name": "kharcha-pani-prod", "runtimeExecutable": "sh", "runtimeArgs": ["-c", "npx vite preview --port ${PORT:-4174} --strictPort"], "port": 4174, "autoPort": true }
+  ]
+}

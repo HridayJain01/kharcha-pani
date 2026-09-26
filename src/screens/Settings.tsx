@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { testKey } from '../ai';
-import { db, DEFAULT_SETTINGS, getSettings, saveSettings, useCats, type Settings as S } from '../db';
+import { PROVIDERS, testKey } from '../ai';
+import { db, DEFAULT_SETTINGS, getSettings, saveSettings, useCats, type Provider, type Settings as S } from '../db';
 import { toast } from '../fx';
 import { catOf, isYmd, today, type Category, type Entry } from '../lib';
+import { loadOffline, offlineReady, OFFLINE_MB, removeOffline } from '../voice';
 
 const PALETTE = ['#B8F135', '#FFD23F', '#9B5DE5', '#FF5A36', '#3A86FF', '#FF4FA3'];
 
@@ -33,20 +34,49 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 // Every field saves on change, not blur: iOS doesn't always blur an input before a tab switch unmounts it.
 export default function Settings({ s }: { s: S }) {
   const cats = useCats();
+  const [provider, setProvider] = useState(s.provider);
   const [key, setKey] = useState(s.apiKey);
   const [model, setModel] = useState(s.model);
+  const [baseUrl, setBaseUrl] = useState(s.baseUrl);
   const [test, setTest] = useState('');
   const [persisted, setPersisted] = useState<boolean>();
+  const [voiceReady, setVoiceReady] = useState(offlineReady);
+  const [dl, setDl] = useState<number | null>(null);
   useEffect(() => { navigator.storage?.persisted?.().then(setPersisted); }, []);
   if (!cats) return null;
+  const p = PROVIDERS[provider];
 
   async function runTest() {
     setTest('Testing… ⏳');
     try {
-      await testKey(key.trim(), model.trim() || DEFAULT_SETTINGS.model);
+      await testKey({ ...s, provider, apiKey: key.trim(), model: model.trim() || p.model, baseUrl });
       setTest('✅ Key works. AI is go!');
     } catch (e) {
       setTest(`❌ ${(e as Error).message}`);
+    }
+  }
+
+  // Switching clears the key, so one company's key is never sent to another's API.
+  function pickProvider(next: Provider) {
+    if (next === provider) return;
+    setProvider(next);
+    setKey('');
+    setModel(PROVIDERS[next].model);
+    setBaseUrl('');
+    setTest('');
+    saveSettings({ provider: next, apiKey: '', model: PROVIDERS[next].model, baseUrl: '' });
+  }
+
+  async function getVoiceModel() {
+    setDl(0);
+    try {
+      await loadOffline(setDl);
+      setVoiceReady(true);
+      toast('Offline voice ready 🎤');
+    } catch (e) {
+      toast(`Download failed: ${(e as Error).message}`);
+    } finally {
+      setDl(null);
     }
   }
 
@@ -142,21 +172,61 @@ export default function Settings({ s }: { s: S }) {
     <div className="grid gap-5">
       <h1 className="font-display text-4xl">Settings ⚙️</h1>
 
-      <Section title="🔑 Gemini AI">
+      <Section title="🧠 AI (optional)">
+        <p className="text-sm font-medium">Works fully offline without it. A free key reads messier notes and unlocks ROAST ME 🔥.</p>
+        <div className="grid grid-cols-3 gap-2" role="group" aria-label="AI provider">
+          {(Object.keys(PROVIDERS) as Provider[]).map(id => (
+            <button key={id} aria-pressed={provider === id} onClick={() => pickProvider(id)}
+              className={`btn px-1 ${provider === id ? 'bg-sunny' : 'bg-white'}`}>
+              {PROVIDERS[id].label}
+            </button>
+          ))}
+        </div>
+        <p className="text-sm font-medium">
+          {p.blurb} {p.keyUrl && <a className="font-bold underline" href={p.keyUrl} target="_blank" rel="noreferrer">Get a free key ↗</a>}
+        </p>
+        {provider === 'custom' && (
+          <label className="grid gap-1">
+            <span className="label">Base URL</span>
+            <input className="input" type="url" autoCapitalize="off" spellCheck={false} placeholder="https://openrouter.ai/api/v1" value={baseUrl}
+              onChange={e => { setBaseUrl(e.target.value); saveSettings({ baseUrl: e.target.value.trim() }); }} />
+          </label>
+        )}
         <label className="grid gap-1">
           <span className="label">API key</span>
-          <input className="input" type="password" autoComplete="off" spellCheck={false} placeholder="AIza…" value={key}
+          <input className="input" type="password" autoComplete="off" spellCheck={false} value={key}
             onChange={e => { setKey(e.target.value); saveSettings({ apiKey: e.target.value.trim() }); }} />
         </label>
         <label className="grid gap-1">
           <span className="label">Model</span>
-          <input className="input" autoCapitalize="off" spellCheck={false} value={model}
-            onChange={e => { setModel(e.target.value); saveSettings({ model: e.target.value.trim() || DEFAULT_SETTINGS.model }); }}
-            onBlur={() => setModel(m => m.trim() || DEFAULT_SETTINGS.model)} />
+          <input className="input" autoCapitalize="off" spellCheck={false} value={model} placeholder="model id"
+            onChange={e => { setModel(e.target.value); saveSettings({ model: e.target.value.trim() || p.model }); }}
+            onBlur={() => setModel(m => m.trim() || p.model)} />
         </label>
         <button className="btn bg-sky" disabled={!key.trim()} onClick={runTest}>Test key</button>
         {test && <p className="font-bold break-words">{test}</p>}
-        <a className="font-bold underline" href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">Get a free key ↗</a>
+      </Section>
+
+      <Section title="🎤 Voice">
+        <p className="text-sm font-medium">
+          {provider === 'groq' && key.trim()
+            ? 'With your Groq key, voice notes use Whisper in the cloud (the most accurate). With no signal, the offline model takes over.'
+            : 'Voice notes run on this phone with a small speech model: private, free, and offline after one download. A Groq key upgrades them to Whisper.'}
+        </p>
+        {voiceReady ? (
+          <button className="btn bg-white" onClick={async () => {
+            if (!confirm(`Remove the offline voice model? Frees ~${OFFLINE_MB} MB; it downloads again next time you need it.`)) return;
+            await removeOffline();
+            setVoiceReady(false);
+            toast('Voice model removed');
+          }}>
+            ✅ Offline model ready · remove
+          </button>
+        ) : (
+          <button className="btn bg-lime" disabled={dl !== null || !navigator.onLine} onClick={getVoiceModel}>
+            {dl !== null ? `Downloading… ${dl}%` : `⬇️ Download offline voice (~${OFFLINE_MB} MB)`}
+          </button>
+        )}
       </Section>
 
       <Section title="💰 Money">

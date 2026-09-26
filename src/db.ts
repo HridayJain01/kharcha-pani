@@ -3,8 +3,10 @@ import { useEffect, useState } from 'react';
 import { DEFAULT_CATEGORIES, today, type Category, type Draft, type Entry } from './lib';
 
 export interface Photo { id: number; entryId: number; blob: Blob }
-export interface Settings { apiKey: string; model: string; currency: string; budget: number; onboarded: boolean }
-export const DEFAULT_SETTINGS: Settings = { apiKey: '', model: 'gemini-2.5-flash-lite', currency: '₹', budget: 0, onboarded: false };
+export type Provider = 'groq' | 'gemini' | 'custom';
+export interface Settings { provider: Provider; apiKey: string; model: string; baseUrl: string; currency: string; budget: number; onboarded: boolean }
+export const DEFAULT_MODELS: Record<Provider, string> = { groq: 'openai/gpt-oss-20b', gemini: 'gemini-3.5-flash-lite', custom: '' };
+export const DEFAULT_SETTINGS: Settings = { provider: 'groq', apiKey: '', model: DEFAULT_MODELS.groq, baseUrl: '', currency: '₹', budget: 0, onboarded: false };
 
 // Everything lives in this one on-device IndexedDB. `kv` holds settings and cached roasts.
 export const db = new Dexie('kharcha-pani') as Dexie & {
@@ -16,10 +18,14 @@ export const db = new Dexie('kharcha-pani') as Dexie & {
 db.version(1).stores({ entries: '++id, date, category', photos: '++id, entryId', categories: 'id', kv: 'key' });
 db.on('populate', tx => tx.table('categories').bulkAdd(DEFAULT_CATEGORIES));
 
-export const getSettings = async (): Promise<Settings> => ({
-  ...DEFAULT_SETTINGS,
-  ...((await db.kv.get('settings'))?.value as Partial<Settings> | undefined),
-});
+export async function getSettings(): Promise<Settings> {
+  const saved = (await db.kv.get('settings'))?.value as Partial<Settings> | undefined;
+  // Saved before providers existed: a key there is a Gemini key; without one, start fresh on Groq.
+  const legacy = saved && !saved.provider
+    ? saved.apiKey ? { provider: 'gemini' as const, model: saved.model || DEFAULT_MODELS.gemini } : { model: DEFAULT_MODELS.groq }
+    : {};
+  return { ...DEFAULT_SETTINGS, ...saved, ...legacy };
+}
 export const saveSettings = (patch: Partial<Settings>) =>
   db.transaction('rw', db.kv, async () => db.kv.put({ key: 'settings', value: { ...(await getSettings()), ...patch } }));
 

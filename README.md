@@ -4,27 +4,49 @@ A tiny, offline-first spending tracker for your phone. Type (or say) what you sp
 
 > chai 15, 2 autos 40 each, zomato 250 yesterday, movie 300
 
-Gemini turns it into tidy entries in fun categories. You check them and hit **SAVE IT**.
+It turns that into tidy entries in fun categories. You check them and hit **SAVE IT**.
 There's no login, no backend and no cost: your data lives only on your device.
 
 - **Add**: today's total, a quick-add box with a mic, and a preview you can edit before anything is saved
 - **Ledger**: every entry grouped by day, with search, category filters, and edit or delete
 - **Overview**: day, week or month totals, change vs the previous period, a donut and daily bars, top categories, fun stats, a budget meter, and **ROAST ME 🔥**
-- **Settings**: Gemini key and model, currency, categories (add, rename, recolour), budget, CSV export, zip backup and restore
+- **Settings**: optional AI key, offline voice model, currency, categories (add, rename, recolour), budget, CSV export, zip backup and restore
 
-With no key, no internet, or a Gemini error, a built-in offline parser takes over. It splits on commas, "and" and new lines, reads the amounts, and guesses the category from keywords.
+## How it understands you
 
-## 1. Get a free Gemini API key
+**Works offline, no key needed.** The built-in parser handles the way people actually type and talk:
 
-1. Go to **https://aistudio.google.com/apikey** and sign in with a Google account.
-2. Click **Create API key** and copy it (it starts with `AIza`).
-3. Open the app and paste it on the first screen. You can change it later in **Settings**, where **Test key** checks it.
+- no commas needed: `chai 15 two autos 40 each metro 60`
+- spoken numbers: `two fifty` = 250, `two hundred and fifty`, `1.5k`, `paanch sau` = 500, `do chai`
+- quantities: `2 autos 40 each`, `samosa 2 @ 15`, `chai x3 45`, `2 samosa for 30`, `2 kg atta 110`
+- amount first: `500 for electricity bill`, `spent 200 on petrol`
+- dates: `yesterday`, `kal`, `day before yesterday`, `last friday`. A date said first (`yesterday: auto 80, lunch 120`) covers everything after it.
+- categories: hundreds of built-in Indian keywords (Zomato, Rapido, Blinkit, pani puri…), typo-tolerant (`zomatto`, `swigy`), and it **learns from you**: however you've filed an item before is how it gets filed next time.
 
-The key is stored only in your browser's IndexedDB on that device. It never goes into the code, a `.env` file, or backups.
-The default model is `gemini-2.5-flash-lite` (fast and free-tier friendly). You can change the model in Settings.
+**Optional AI key** for messier notes and ROAST ME. All three are free to start:
 
-What gets sent to Google: the text you type to log spends, and, when you tap ROAST ME, a summary of totals, counts and item names. Photos never leave the device.
-Note that on the free tier Google may use prompts to improve its products, so don't type anything you'd mind them seeing.
+| Provider | Get a key | Why |
+|---|---|---|
+| **Groq** (recommended) | https://console.groq.com/keys | Free, extremely fast, and upgrades voice to Whisper large |
+| Gemini | https://aistudio.google.com/apikey | Google's free tier |
+| Other | your provider | Any OpenAI-compatible API: OpenRouter, Mistral, Cerebras, or Ollama on your own computer. Paste its base URL (e.g. `https://openrouter.ai/api/v1`) and a model that supports JSON schema output. |
+
+Paste the key on the first screen or in **Settings → AI**. **Test key** checks the key, the model name and JSON output in one go.
+Keys are stored only in your browser's IndexedDB on that device. They never go into the code, a `.env` file, or backups.
+Switching providers clears the key, so one company's key is never sent to another's API.
+Even with AI on, your own history wins: an item you've filed the same way twice keeps its category.
+
+## Voice notes 🎤
+
+Tap the mic, talk, tap again. What you said appears in the box and gets parsed straight away.
+
+- **With a Groq key and signal:** Groq's hosted **Whisper large-v3-turbo** transcribes it. This is the most accurate option (about 1 s; free tier: 2,000 notes a day).
+- **Otherwise:** a small speech model runs **on your phone**: [Moonshine base](https://huggingface.co/onnx-community/moonshine-base-ONNX) via Transformers.js, in a background worker. It downloads once (~80 MB, and the app asks first), then works fully offline and privately. Warm transcription takes well under a second on a laptop, a bit longer on phones. You can also download or remove it in **Settings → Voice**.
+
+The keyboard's own dictation mic works in the box too.
+
+**What leaves the device:** with an AI key, the text you log goes to that provider; with a Groq key, voice recordings go to Groq's Whisper; ROAST ME sends a summary (totals, counts, item names). Photos never leave the device, and nothing is sent anywhere without a key.
+On free tiers, providers may use prompts to improve their products, so don't type anything you'd mind them seeing.
 
 ## 2. Run it locally
 
@@ -46,7 +68,7 @@ Other scripts:
 ```bash
 npm run build     # type-check + production build into dist/
 npm run preview   # serve the production build (with the service worker)
-npm test          # quick self-check of the offline parser, dates and stats
+npm test          # self-check of the offline parser (typed and spoken styles), dates and stats
 ```
 
 ## 3. Deploy to Vercel (free)
@@ -75,7 +97,7 @@ Nothing needs configuring: there are no environment variables and no server.
 It opens full-screen in portrait like a normal app and works offline after the first visit.
 When you deploy a new version, the app updates itself the next time you open it.
 
-**Voice:** the 🎤 button shows up where the browser supports speech recognition (for example Chrome on Android). Everywhere else, the dictation mic on your keyboard works in the same box.
+**Voice:** the in-app 🎤 works in the installed app on both Android and iPhone (allow the microphone when asked). The first time without a Groq key, it offers to download the offline voice model, so do that on Wi-Fi.
 
 ## Your data
 
@@ -86,13 +108,15 @@ When you deploy a new version, the app updates itself the next time you open it.
 
 ## Tech
 
-React, Vite, TypeScript, Tailwind CSS 4, vite-plugin-pwa (Workbox), Dexie (IndexedDB), Recharts, JSZip, and the Gemini REST API called straight from the browser.
+React, Vite, TypeScript, Tailwind CSS 4, vite-plugin-pwa (Workbox), Dexie (IndexedDB), Recharts, JSZip, Transformers.js (on-device Moonshine), and the Groq, Gemini or any OpenAI-compatible REST API called straight from the browser.
 
 ```
 src/
-  lib.ts              types, default categories, dates, offline parser, stats (pure, tested by lib.test.ts)
+  lib.ts              types, categories + keywords, dates, offline parser, learning, stats (pure, tested by lib.test.ts)
   db.ts               Dexie schema, settings, live-query hooks, save/update/delete
-  ai.ts               Gemini calls: parse, roast, key test
+  ai.ts               AI providers (Groq, Gemini, OpenAI-compatible): parse, roast, key test, Whisper
+  voice.ts            mic recording, cloud vs on-device transcription
+  asr.worker.ts       on-device speech model (Transformers.js) off the main thread
   fx.ts               coin clink, coin burst, confetti, toasts
   components/Entry.tsx  entry card, editable fields and photos, edit sheet
   screens/            Onboarding, Add, Ledger, Overview, Settings

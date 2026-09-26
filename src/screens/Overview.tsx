@@ -230,7 +230,7 @@ export default function Overview({ s }: { s: Settings }) {
             <button className="btn min-h-16 bg-tomato font-display text-3xl font-normal" disabled={roasting || !s.apiKey || !!roasted} onClick={doRoast}>
               {roasting ? 'Heating up… 🔥' : roasted ? 'ROASTED ✔' : 'ROAST ME 🔥'}
             </button>
-            {!s.apiKey && <p className="-mt-3 text-center text-sm font-bold">Add a Gemini key in Settings to get roasted.</p>}
+            {!s.apiKey && <p className="-mt-3 text-center text-sm font-bold">Add a free AI key (Groq or Gemini) in Settings to get roasted.</p>}
             {roasted && (
               <div className="bubble card p-4" aria-live="polite">
                 <p className="text-lg font-bold">{roasted.roast}</p>

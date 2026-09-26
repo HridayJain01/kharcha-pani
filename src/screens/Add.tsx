@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { aiParse } from '../ai';
 import { EntryCard, EntryFields, EntrySheet } from '../components/Entry';
 import { db, saveDrafts, useCats, useLive, useToday, type Settings } from '../db';
 import { clink, coinBurst, confetti, toast } from '../fx';
-import { addDays, catOf, localParse, money, today, type Draft, type Entry } from '../lib';
+import { addDays, buildMemory, catOf, localParse, money, today, type Draft, type Entry } from '../lib';
+import { cloudVoice, loadOffline, offlineReady, OFFLINE_MB, record, transcribe } from '../voice';
 
 const QUIPS = [
   'Your wallet felt that one.',
@@ -18,8 +19,8 @@ const QUIPS = [
   'Money comes, money goes. Mostly goes.',
 ];
 
-// Web Speech API isn't in the TS DOM types (and Chrome/Safari still prefix it). No support = no mic button.
-const Recognition = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+// Needs a secure context (https or localhost); over plain http the mic button just hides.
+const canRecord = typeof MediaRecorder !== 'undefined' && !!navigator.mediaDevices;
 
 // Once per day: if yesterday had no entries (and you were already logging before that), celebrate.
 async function cheerNoSpendYesterday() {
@@ -44,36 +45,44 @@ export default function Add({ s }: { s: Settings }) {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
-  const [listening, setListening] = useState(false);
+  const [voice, setVoice] = useState<'idle' | 'rec' | 'busy'>('idle');
+  const [dl, setDl] = useState<number | null>(null); // voice model download %
   const [fresh, setFresh] = useState<number[]>([]);
   const [ouch, setOuch] = useState(false);
   const [quip, setQuip] = useState(() => Math.floor(Math.random() * QUIPS.length));
   const [editing, setEditing] = useState<Entry>();
-  const rec = useRef<{ start(): void; stop(): void; abort(): void } | null>(null);
+  const stopRec = useRef<(() => Promise<Blob>) | null>(null);
+  const autoStop = useRef<number>(undefined);
+  const box = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     cheerNoSpendYesterday();
     const timer = setInterval(() => setQuip(q => q + 1), 7000);
-    return () => { clearInterval(timer); rec.current?.abort(); };
+    return () => {
+      clearInterval(timer);
+      clearTimeout(autoStop.current);
+      stopRec.current?.(); // release the mic if you switch tabs mid-recording
+    };
   }, []);
 
-  async function parse(e?: FormEvent) {
-    e?.preventDefault();
-    const input = text.trim();
+  async function parse(input: string) {
+    input = input.trim();
     if (!input || !cats || busy) return;
     setBusy(true);
+    const memory = buildMemory(await db.entries.toArray()); // learns from everything you've saved
     let out: Draft[] = [];
     let why = '';
-    if (!s.apiKey) why = 'No AI key, so the quick parser did this.';
-    else if (!navigator.onLine) why = "You're offline, so the quick parser did this.";
-    else {
-      try {
-        out = await aiParse(input, cats, s.currency);
-      } catch (err) {
-        why = `AI hiccup (${(err as Error).message}), so the quick parser did this.`;
+    if (s.apiKey) {
+      if (!navigator.onLine) why = "You're offline, so the offline parser read this.";
+      else {
+        try {
+          out = await aiParse(input, cats, memory);
+        } catch (err) {
+          why = `AI hiccup (${(err as Error).message}), so the offline parser read this.`;
+        }
       }
     }
-    if (!out.length) out = localParse(input, cats);
+    if (!out.length) out = localParse(input, cats, memory);
     setBusy(false);
     setNote(why && `${why} Double-check it!`);
     setDrafts(out);
@@ -102,25 +111,49 @@ export default function Add({ s }: { s: Settings }) {
     setNote('');
   }
 
-  function mic() {
-    if (listening) return rec.current?.stop();
-    const r = new Recognition();
-    r.lang = 'en-IN';
-    r.interimResults = false;
-    r.onresult = (ev: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => {
-      const said = Array.from(ev.results, res => res[0].transcript).join(' ').trim();
-      if (said) setText(t => (t.trim() ? `${t.trim()}, ` : '') + said);
-    };
-    r.onerror = (ev: { error: string }) => {
-      if (ev.error !== 'aborted' && ev.error !== 'no-speech') toast(`Mic trouble: ${ev.error}`);
-    };
-    r.onend = () => setListening(false);
-    rec.current = r;
-    r.start();
-    setListening(true);
+  // Tap to record, tap again to stop: Whisper (Groq key + signal) or the on-device model writes it down,
+  // then it's parsed like typed text.
+  async function mic() {
+    if (voice === 'rec') return finishVoice();
+    if (voice !== 'idle') return;
+    const cloud = cloudVoice(s);
+    if (!cloud && !offlineReady()) {
+      if (!navigator.onLine) return toast('Voice needs a one-time download. Get online and tap 🎤 again.');
+      if (!confirm(`Voice runs right on your phone with a small speech model.\n\nDownload it once (~${OFFLINE_MB} MB)? After that it works offline.\n\n(Or add a free Groq key in Settings to use Whisper in the cloud.)`)) return;
+    }
+    try {
+      stopRec.current = await record();
+    } catch {
+      return toast('🙉 Mic blocked. Allow microphone access for this app.');
+    }
+    setVoice('rec');
+    autoStop.current = window.setTimeout(finishVoice, 30_000);
+    if (!cloud) loadOffline(setDl).catch(() => {}).finally(() => setDl(null)); // downloads/warms up while you talk
+  }
+
+  async function finishVoice() {
+    clearTimeout(autoStop.current);
+    const stop = stopRec.current;
+    stopRec.current = null;
+    if (!stop) return;
+    setVoice('busy');
+    try {
+      const said = await transcribe(await stop(), s, setDl);
+      if (!said) throw new Error("didn't catch that, try again");
+      const next = [box.current?.value.trim(), said].filter(Boolean).join(', ');
+      setText(next);
+      setVoice('idle');
+      await parse(next);
+    } catch (e) {
+      toast(`🙉 ${(e as Error).message}`);
+    } finally {
+      setVoice('idle');
+      setDl(null);
+    }
   }
 
   const ready = drafts.length > 0 && drafts.every(d => d.item.trim() && Number(d.amount) > 0);
+  const getting = dl !== null && dl < 100 ? ` (voice model ${dl}%)` : '';
   const total = todays?.reduce((n, e) => n + e.amount, 0) ?? 0;
 
   return (
@@ -138,21 +171,27 @@ export default function Add({ s }: { s: Settings }) {
         </p>
       </section>
 
-      <form onSubmit={parse} className="card grid gap-3 p-3">
+      <form onSubmit={e => { e.preventDefault(); parse(text); }} className="card grid gap-3 p-3">
         <label htmlFor="quick" className="font-display text-2xl">What did you spend on?</label>
         <div className="flex gap-2">
-          <textarea id="quick" rows={2} enterKeyHint="send" value={text}
+          <textarea id="quick" ref={box} rows={2} enterKeyHint="send" value={text}
             className="input field-sizing-content max-h-48 min-h-20 min-w-0 flex-1 resize-none py-2 text-lg"
             placeholder="chai 15, 2 autos 80, lunch 120"
             onChange={e => setText(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) parse(e); }} />
-          {Recognition && (
-            <button type="button" onClick={mic} aria-pressed={listening} aria-label={listening ? 'Stop listening' : 'Say it'}
-              className={`btn w-14 shrink-0 self-stretch px-0 text-2xl ${listening ? 'listening bg-tomato' : 'bg-pink'}`}>
-              {listening ? '👂' : '🎤'}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); parse(text); } }} />
+          {canRecord && (
+            <button type="button" onClick={mic} disabled={voice === 'busy'} aria-pressed={voice === 'rec'}
+              aria-label={voice === 'rec' ? 'Stop and write it down' : 'Record a voice note'}
+              className={`btn w-14 shrink-0 self-stretch px-0 text-2xl ${voice === 'rec' ? 'listening bg-tomato' : 'bg-pink'}`}>
+              {voice === 'rec' ? '⏹' : voice === 'busy' ? '⏳' : '🎤'}
             </button>
           )}
         </div>
+        {voice !== 'idle' && (
+          <p className="text-sm font-bold" aria-live="polite">
+            {voice === 'rec' ? `🔴 Listening… tap ⏹ when done${getting}` : `✍️ Writing it down…${getting}`}
+          </p>
+        )}
         <button className="btn bg-lime text-lg" disabled={busy || !text.trim()}>
           {busy ? 'Thinking… 🤔' : 'Log it ✍️'}
         </button>

@@ -4,9 +4,18 @@ import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
+  worker: { format: 'es' },
   plugins: [
     react(),
     tailwindcss(),
+    {
+      // ONNX Runtime's bundled 27 MB wasm is never fetched: transformers.js loads the runtime from jsDelivr
+      // (see src/asr.worker.ts), so keep it out of dist.
+      name: 'drop-unused-onnx-wasm',
+      generateBundle(_, bundle) {
+        for (const file of Object.keys(bundle)) if (file.endsWith('.wasm')) delete bundle[file];
+      },
+    },
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
@@ -26,8 +35,16 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png}'],
-        // Google Fonts: cached on first online visit, then served offline.
+        // The offline-voice worker (~540 kB) is cached on first use instead of at install.
+        // Its model and runtime cache themselves (transformers.js uses Cache Storage).
+        globIgnores: ['**/asr.worker-*.js'],
         runtimeCaching: [
+          {
+            urlPattern: /\/assets\/asr\.worker-[\w-]+\.js$/,
+            handler: 'CacheFirst',
+            options: { cacheName: 'voice-worker', expiration: { maxEntries: 2 } },
+          },
+          // Google Fonts: cached on first online visit, then served offline.
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\//,
             handler: 'StaleWhileRevalidate',

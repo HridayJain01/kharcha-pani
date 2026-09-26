@@ -10,6 +10,7 @@
     "test": "node src/lib.test.ts"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.3.0",
     "dexie": "^4.4.6",
     "jszip": "^3.10.2",
     "react": "^19.3.0",

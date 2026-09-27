@@ -1,12 +1,13 @@
 // Voice notes: record with MediaRecorder, then transcribe with Groq's Whisper (when you have a Groq key and
 // signal) or on this device with a small speech model running offline in a worker.
-import { whisper } from './ai';
+import { SHARED, whisper } from './ai';
 import type { Settings } from './db';
 
 export const OFFLINE_MB = 80; // model ~63 MB + speech runtime ~14 MB, downloaded once
 const READY = 'kp-voice-model';
 
-export const cloudVoice = (s: Settings) => s.provider === 'groq' && !!s.apiKey && navigator.onLine;
+// Whisper in the cloud with your own Groq key, or with the app's shared key when you have none.
+export const cloudVoice = (s: Settings) => navigator.onLine && (s.apiKey ? s.provider === 'groq' : SHARED);
 
 export const offlineReady = () => {
   try {

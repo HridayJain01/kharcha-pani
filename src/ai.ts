@@ -34,11 +34,17 @@ async function reply(res: Response) {
   return data;
 }
 
+// Built with VITE_SHARED_AI=1 (plus GROQ_API_KEY on Vercel), people with no key of their own use the
+// owner's Groq key through api/groq.ts. Their own key, if they add one, always wins.
+export const SHARED = import.meta.env.VITE_SHARED_AI === '1';
+const SHARED_URL = '/api/groq';
+export const hasAI = (s: Settings) => !!s.apiKey || SHARED;
+
 // The key goes in a header, never the URL, and only to the provider it belongs to.
 async function ask(s: Settings, prompt: string, schema: Schema, system?: string) {
-  if (!s.apiKey) throw new Error('no AI key yet');
+  if (!hasAI(s)) throw new Error('no AI key yet');
   let text: string | undefined;
-  if (s.provider === 'gemini') {
+  if (s.apiKey && s.provider === 'gemini') {
     const data = await reply(await fetch(`${PROVIDERS.gemini.base}/models/${encodeURIComponent(s.model)}:generateContent`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-goog-api-key': s.apiKey },
@@ -52,10 +58,10 @@ async function ask(s: Settings, prompt: string, schema: Schema, system?: string)
     text = data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? '').join('');
   } else {
     const base = s.provider === 'groq' ? PROVIDERS.groq.base : s.baseUrl.trim().replace(/\/+$/, '');
-    if (!base) throw new Error('add the base URL in Settings');
-    const data = await reply(await fetch(`${base}/chat/completions`, {
+    if (s.apiKey && !base) throw new Error('add the base URL in Settings');
+    const data = await reply(await fetch(s.apiKey ? `${base}/chat/completions` : SHARED_URL, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${s.apiKey}` },
+      headers: { 'content-type': 'application/json', ...(s.apiKey && { authorization: `Bearer ${s.apiKey}` }) },
       body: JSON.stringify({
         model: s.model,
         messages: [...(system ? [{ role: 'system', content: system }] : []), { role: 'user', content: prompt }],
@@ -154,8 +160,8 @@ export async function whisper(s: Settings, audio: Blob) {
   form.append('language', 'en');
   form.append('temperature', '0');
   form.append('prompt', 'Spends in rupees, like: chai 15, 2 autos 80, Zomato 250 yesterday, Swiggy, Blinkit, Rapido, samosa, metro, recharge.');
-  const data = await reply(await fetch(`${PROVIDERS.groq.base}/audio/transcriptions`, {
-    method: 'POST', headers: { authorization: `Bearer ${s.apiKey}` }, body: form, signal: AbortSignal.timeout(30_000),
+  const data = await reply(await fetch(s.apiKey ? `${PROVIDERS.groq.base}/audio/transcriptions` : SHARED_URL, {
+    method: 'POST', headers: s.apiKey ? { authorization: `Bearer ${s.apiKey}` } : {}, body: form, signal: AbortSignal.timeout(30_000),
   }));
   return String(data.text ?? '').trim();
 }

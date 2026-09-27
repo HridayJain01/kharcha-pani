@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
-import { aiParse } from '../ai';
+import { aiParse, hasAI } from '../ai';
 import { EntryCard, EntryFields, EntrySheet } from '../components/Entry';
 import { db, saveDrafts, useCats, useLive, useToday, type Settings } from '../db';
 import { clink, coinBurst, confetti, toast } from '../fx';
@@ -72,7 +72,7 @@ export default function Add({ s }: { s: Settings }) {
     const memory = buildMemory(await db.entries.toArray()); // learns from everything you've saved
     let out: Draft[] = [];
     let why = '';
-    if (s.apiKey) {
+    if (hasAI(s)) {
       if (!navigator.onLine) why = "You're offline, so the offline parser read this.";
       else {
         try {

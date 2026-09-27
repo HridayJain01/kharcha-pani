@@ -48,6 +48,26 @@ The keyboard's own dictation mic works in the box too.
 **What leaves the device:** with an AI key, the text you log goes to that provider; with a Groq key, voice recordings go to Groq's Whisper; ROAST ME sends a summary (totals, counts, item names). Photos never leave the device, and nothing is sent anywhere without a key.
 On free tiers, providers may use prompts to improve their products, so don't type anything you'd mind them seeing.
 
+## Share your key so users set up nothing (optional)
+
+Deploy with your own Groq key on the server, and every user gets Whisper voice and AI parsing with zero setup. The key stays on the server (`api/groq.ts`), so it never reaches anyone's phone.
+
+1. Get a free Groq key at https://console.groq.com/keys.
+2. In Vercel, open your project, then **Settings → Environment Variables**, and add:
+   - `GROQ_API_KEY` = your `gsk_…` key
+   - `VITE_SHARED_AI` = `1` (turns on the shared mode in the app)
+   - optional: `DAILY_LIMIT_PER_IP` (default `150` requests per person per day)
+3. Redeploy (Deployments → ⋯ → Redeploy).
+
+What changes for users: onboarding no longer asks for a key, and voice and parsing just work. Anyone who adds their own key in Settings uses theirs instead.
+
+Good to know:
+
+- **Limits are shared.** Groq's free tier is roughly 1,000 AI parses and 2,000 voice notes a day across all your users. Past that, add billing on Groq (cheap) or users fall back to the offline parser and the on-device voice model automatically.
+- **Protection is basic.** The function only accepts requests from your own site, only the app's fields, always your chosen models, and caps each person per day. The per-day count lives in memory, so it resets when Vercel restarts the function; if someone abuses it, move the counter to Upstash or Vercel KV.
+- **Privacy.** Everyone's notes and voice clips pass through your function and your Groq account.
+- **Local testing:** `npm run dev` doesn't run `api/`. Use `npx vercel dev` with the same variables in a `.env.local` file.
+
 ## 2. Run it locally
 
 You need Node.js 22.18 or newer (`npm test` runs TypeScript directly in Node).

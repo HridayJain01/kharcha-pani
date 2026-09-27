@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { PROVIDERS, testKey } from '../ai';
+import { PROVIDERS, SHARED, testKey } from '../ai';
 import { DEFAULT_SETTINGS, saveSettings, type Provider } from '../db';
 
 export default function Onboarding() {
@@ -32,7 +32,8 @@ export default function Onboarding() {
       <button className="btn min-h-16 bg-lime text-lg" onClick={() => saveSettings({ onboarded: true })}>
         Start logging 🚀
       </button>
-      <form onSubmit={go} className="card grid gap-3 p-4">
+      {/* with the shared key built in there's nothing to set up, so no key card */}
+      {!SHARED && <form onSubmit={go} className="card grid gap-3 p-4">
         <p className="font-display text-2xl">Optional: add a free AI key</p>
         <p className="text-sm font-medium">Everything works offline without it. A key reads messier notes and unlocks ROAST ME 🔥.</p>
         <div className="grid grid-cols-2 gap-2" role="group" aria-label="AI provider">
@@ -49,8 +50,8 @@ export default function Onboarding() {
           placeholder={provider === 'groq' ? 'gsk_…' : 'AIza…'} value={key} onChange={e => setKey(e.target.value)} />
         {err && <p className="rounded-lg border-3 border-ink bg-tomato/30 p-2 text-sm font-bold break-words">❌ {err}</p>}
         <button className="btn bg-white" disabled={busy || !key.trim()}>{busy ? 'Checking… ⏳' : 'Use this key'}</button>
-      </form>
-      <p className="text-center text-sm font-bold">🔒 Everything stays on this device. No login, no server.</p>
+      </form>}
+      <p className="text-center text-sm font-bold">🔒 {SHARED ? 'Your entries stay on this device. No login.' : 'Everything stays on this device. No login, no server.'}</p>
     </main>
   );
 }

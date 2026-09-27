@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { PROVIDERS, testKey } from '../ai';
+import { PROVIDERS, SHARED, testKey } from '../ai';
 import { db, DEFAULT_SETTINGS, getSettings, saveSettings, useCats, type Provider, type Settings as S } from '../db';
 import { toast } from '../fx';
 import { catOf, isYmd, today, type Category, type Entry } from '../lib';
@@ -173,7 +173,11 @@ export default function Settings({ s }: { s: S }) {
       <h1 className="font-display text-4xl">Settings ⚙️</h1>
 
       <Section title="🧠 AI (optional)">
-        <p className="text-sm font-medium">Works fully offline without it. A free key reads messier notes and unlocks ROAST ME 🔥.</p>
+        <p className="text-sm font-medium">
+          {SHARED && !key.trim()
+            ? 'AI and Whisper voice are already on for you. Add your own key only if you keep hitting the free daily limit.'
+            : 'Works fully offline without it. A free key reads messier notes and unlocks ROAST ME 🔥.'}
+        </p>
         <div className="grid grid-cols-3 gap-2" role="group" aria-label="AI provider">
           {(Object.keys(PROVIDERS) as Provider[]).map(id => (
             <button key={id} aria-pressed={provider === id} onClick={() => pickProvider(id)}
@@ -209,8 +213,8 @@ export default function Settings({ s }: { s: S }) {
 
       <Section title="🎤 Voice">
         <p className="text-sm font-medium">
-          {provider === 'groq' && key.trim()
-            ? 'With your Groq key, voice notes use Whisper in the cloud (the most accurate). With no signal, the offline model takes over.'
+          {(provider === 'groq' && key.trim()) || (SHARED && !key.trim())
+            ? 'With Groq, voice notes use Whisper in the cloud (the most accurate). With no signal, the offline model takes over.'
             : 'Voice notes run on this phone with a small speech model: private, free, and offline after one download. A Groq key upgrades them to Whisper.'}
         </p>
         {voiceReady ? (

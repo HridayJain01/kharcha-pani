@@ -3,7 +3,7 @@
 // The key never reaches the browser. The browser posts here; this adds the key and forwards to Groq.
 const GROQ = 'https://api.groq.com/openai/v1';
 const CHAT_MODEL = 'openai/gpt-oss-20b';
-const VOICE_MODEL = 'whisper-large-v3-turbo';
+const VOICE_MODEL = 'whisper-large-v3'; // full model: much better Hindi than turbo
 const DAILY_PER_IP = Number(process.env.DAILY_LIMIT_PER_IP ?? 150);
 
 // ponytail: per-instance memory, so the limit resets on cold starts and isn't shared between instances.

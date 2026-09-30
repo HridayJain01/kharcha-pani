@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { useSettings } from './db';
+import { addDueRepeats, useSettings } from './db';
+import { toast } from './fx';
 import Add from './screens/Add';
 import Ledger from './screens/Ledger';
 import Onboarding from './screens/Onboarding';
@@ -19,6 +20,7 @@ export default function App() {
   const s = useSettings();
   const [tab, setTab] = useState<Tab>('add');
   useEffect(() => { window.scrollTo(0, 0); }, [tab]);
+  useEffect(() => { addDueRepeats().then(n => n && toast(`Added ${n} monthly repeat${n > 1 ? 's' : ''} 🔁`)); }, []);
   if (!s) return null;
   if (!s.onboarded) return <Onboarding />;
 

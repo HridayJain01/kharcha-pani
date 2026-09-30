@@ -30,10 +30,10 @@ check(JSON.stringify(Object.keys(sent.body as object)) === '["model","messages",
 
 const form = new FormData();
 form.set('file', new Blob([new Uint8Array(100)], { type: 'audio/webm' }), 'voice.webm');
-form.set('model', 'whisper-large-v3');
+form.set('model', 'whisper-large-v3-turbo');
 form.set('prompt', 'chai');
 await POST(req({ body: form, origin: 'https://kp.vercel.app', ip: '2.2.2.2' }));
-check(calls.at(-1)!.url.endsWith('/audio/transcriptions') && (calls.at(-1)!.body as { model: string }).model === 'whisper-large-v3-turbo', 'voice goes to Whisper turbo');
+check(calls.at(-1)!.url.endsWith('/audio/transcriptions') && (calls.at(-1)!.body as { model: string }).model === 'whisper-large-v3', 'voice goes to Whisper large-v3');
 
 await POST(req({ body: chat, origin: 'https://kp.vercel.app', ip: '2.2.2.2' }));
 check((await POST(req({ body: chat, origin: 'https://kp.vercel.app', ip: '2.2.2.2' }))).status === 429, '4th request of the day is limited');

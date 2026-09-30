@@ -95,6 +95,8 @@ Rules:
 - amount is the TOTAL paid for that line. '2 autos 40 each' = 80. '2 autos 40' = 40 (treat the number as the total unless it says 'each' or 'per').
 - '1.5k' = 1500. Ignore 'rs', 'rupees' or '₹'.
 - Input may come from voice dictation, so fix obvious mishearings: 'free chai' likely means 'three chai', 'to autos' means 'two autos', 'for' may mean 'four'.
+- Input may be Hindi or Hinglish, in Devanagari or Roman script: 'dedh sau' = 150, 'dhai sau' = 250, 'paanch sau' = 500, 'kal' = yesterday. Write item names in simple Roman script ('chai', 'sabzi', 'auto').
+- 'split 4' or 'split between 3' means the user's share: divide that line's amount by the number.
 - Understand relative dates like 'yesterday' or 'last friday'; default to today.
 - If a line has no amount, set amount to null so the user can fill it in.
 - Pick the single best category; use 'misc' if nothing fits.
@@ -142,24 +144,44 @@ Return JSON only.`;
   });
 }
 
+// The voice for all the fun bits: a friend texting, not a finance app.
+const FRIEND = `You're the user's sarcastic best friend from Mumbai, texting them. Hinglish, lowercase is fine, short sentences.
+Be specific: name the actual items, amounts and days from the data, never generic lines like "your wallet is crying".
+No "Ah,", "Well, well", "Let's", "It seems", no em dashes, no hashtags, no more than one emoji. Tease, never insult.`;
+const TEXT = (...keys: string[]): Schema =>
+  ({ type: 'object', properties: Object.fromEntries(keys.map(k => [k, { type: 'string' }])), required: keys, additionalProperties: false });
+const clip = (r: Record<string, unknown>, k: string, n = 400) => String(r?.[k] ?? '').slice(0, n);
+
 // Only aggregates go out (totals, counts, item names). Never photos.
 export async function roast(periodWord: string, summary: object) {
-  const r = await ask(
-    await getSettings(),
-    `You're a witty friend roasting someone's spending. Here is their ${periodWord} summary: ${JSON.stringify(summary)}. Write a 2-3 line roast that's funny and teasing but never mean, then one short, practical money tip based on the data. Casual Indian English. Return JSON { roast: string, tip: string }.`,
-    { type: 'object', properties: { roast: { type: 'string' }, tip: { type: 'string' } }, required: ['roast', 'tip'], additionalProperties: false },
-  );
-  return { roast: String(r?.roast ?? '').slice(0, 600), tip: String(r?.tip ?? '').slice(0, 300) };
+  const r = await ask(await getSettings(),
+    `My ${periodWord} spending: ${JSON.stringify(summary)}. Roast me in 2-3 lines like you'd text a friend, then one blunt tip that uses my actual numbers. JSON { roast, tip }.`,
+    TEXT('roast', 'tip'), FRIEND);
+  return { roast: clip(r, 'roast', 600), tip: clip(r, 'tip', 300) };
 }
 
-// Groq's hosted Whisper large-v3-turbo: free tier, ~1 s, and the vocabulary hint helps with Zomato & co.
+export async function shouldBuy(thing: string, context: object) {
+  const r = await ask(await getSettings(),
+    `Should I buy this: "${thing}"? My month so far: ${JSON.stringify(context)}. verdict is exactly "BUY IT", "SKIP IT" or "SLEEP ON IT"; why is one or two judgy lines. JSON { verdict, why }.`,
+    TEXT('verdict', 'why'), FRIEND);
+  return { verdict: clip(r, 'verdict', 20), why: clip(r, 'why') };
+}
+
+export async function horoscope(summary: object) {
+  const r = await ask(await getSettings(),
+    `Write my money horoscope for this week, like a fake astrologer who has seen my spending: ${JSON.stringify(summary)}. 2 lines, planets meddling with my actual habits ("Mercury is in Zomato"). JSON { text }.`,
+    TEXT('text'), FRIEND);
+  return clip(r, 'text');
+}
+
+// Groq's hosted Whisper large-v3 (not turbo: turbo is weak at Hindi). Free tier; the vocabulary hint helps with Zomato & co.
+// No forced language: Whisper hears Hindi as Hindi, and the Roman-script Hinglish prompt keeps the text in Roman letters.
 export async function whisper(s: Settings, audio: Blob) {
   const form = new FormData();
   form.append('file', audio, `voice.${audio.type.split(/[/;]/)[1] || 'webm'}`);
-  form.append('model', 'whisper-large-v3-turbo');
-  form.append('language', 'en');
+  form.append('model', 'whisper-large-v3');
   form.append('temperature', '0');
-  form.append('prompt', 'Spends in rupees, like: chai 15, 2 autos 80, Zomato 250 yesterday, Swiggy, Blinkit, Rapido, samosa, metro, recharge.');
+  form.append('prompt', 'Kharcha in rupees, Hinglish: chai 15, do auto 80, kal Zomato 250, paanch sau ka petrol, dedh sau ki sabzi, Swiggy, Blinkit, Rapido, samosa, metro, recharge.');
   const data = await reply(await fetch(s.apiKey ? `${PROVIDERS.groq.base}/audio/transcriptions` : SHARED_URL, {
     method: 'POST', headers: s.apiKey ? { authorization: `Bearer ${s.apiKey}` } : {}, body: form, signal: AbortSignal.timeout(30_000),
   }));

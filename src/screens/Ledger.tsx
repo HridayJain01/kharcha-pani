@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { EntryCard, EntrySheet } from '../components/Entry';
 import { db, useCats, useLive, type Settings } from '../db';
-import { catOf, dayLabel, money, type Entry } from '../lib';
+import { catOf, dayLabel, money, toDate, type Entry } from '../lib';
 
 const PAGE = 30; // days rendered per "show older" tap
 
@@ -33,7 +33,7 @@ export default function Ledger({ s }: { s: Settings }) {
         ))}
       </div>
 
-      {groups.slice(0, shown).map(([date, es]) => (
+      {groups.slice(0, shown).map(([date, es], i) => (
         <section key={date} className="grid gap-2">
           <h2 className="flex items-baseline justify-between border-b-3 border-ink pb-1">
             <span className="font-display text-2xl">{dayLabel(date)}</span>
@@ -42,6 +42,7 @@ export default function Ledger({ s }: { s: Settings }) {
           {es.map(e => (
             <EntryCard key={e.id} e={e} cat={catOf(cats, e.category)} cur={s.currency} photo={withPhotos?.has(e.id)} onClick={() => setEditing(e)} />
           ))}
+          {!cat && !needle && <NoSpend days={groups[i + 1] ? Math.round((+toDate(date) - +toDate(groups[i + 1][0])) / 864e5) - 1 : 0} />}
         </section>
       ))}
       {groups.length > shown && <button className="btn bg-white" onClick={() => setShown(n => n + PAGE)}>Show older ⏬</button>}
@@ -55,3 +56,6 @@ export default function Ledger({ s }: { s: Settings }) {
     </div>
   );
 }
+
+const NoSpend = ({ days }: { days: number }) =>
+  days > 0 && <p className="mt-2 rounded-full border-3 border-dashed border-ink bg-lime py-1 text-center text-sm font-bold">🏆 {days} no-spend day{days > 1 ? 's' : ''}</p>;

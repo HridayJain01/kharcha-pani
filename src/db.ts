@@ -1,12 +1,12 @@
 import Dexie, { liveQuery, type EntityTable, type Table } from 'dexie';
 import { useEffect, useState } from 'react';
-import { DEFAULT_CATEGORIES, today, type Category, type Draft, type Entry } from './lib';
+import { DEFAULT_CATEGORIES, norm, today, ymd, type Category, type Draft, type Entry } from './lib';
 
 export interface Photo { id: number; entryId: number; blob: Blob }
 export type Provider = 'groq' | 'gemini' | 'custom';
-export interface Settings { provider: Provider; apiKey: string; model: string; baseUrl: string; currency: string; budget: number; onboarded: boolean }
+export interface Settings { provider: Provider; apiKey: string; model: string; baseUrl: string; currency: string; budget: number; goal: string; goalAmount: number; onboarded: boolean }
 export const DEFAULT_MODELS: Record<Provider, string> = { groq: 'openai/gpt-oss-20b', gemini: 'gemini-3.5-flash-lite', custom: '' };
-export const DEFAULT_SETTINGS: Settings = { provider: 'groq', apiKey: '', model: DEFAULT_MODELS.groq, baseUrl: '', currency: '₹', budget: 0, onboarded: false };
+export const DEFAULT_SETTINGS: Settings = { provider: 'groq', apiKey: '', model: DEFAULT_MODELS.groq, baseUrl: '', currency: '₹', budget: 0, goal: '', goalAmount: 0, onboarded: false };
 
 // Everything lives in this one on-device IndexedDB. `kv` holds settings and cached roasts.
 export const db = new Dexie('kharcha-pani') as Dexie & {
@@ -79,3 +79,37 @@ export const updateEntry = (id: number, d: Draft) =>
 export const deleteEntry = (id: number) =>
   db.transaction('rw', db.entries, db.photos, () =>
     Promise.all([db.entries.delete(id), db.photos.where('entryId').equals(id).delete()]));
+
+// Monthly repeats (rent, Netflix…), matched by item name. `last` = the latest "YYYY-MM" already added.
+export interface Repeat { item: string; amount: number; category: string; emoji: string; day: number; last: string }
+export const getRepeats = async () => ((await db.kv.get('repeats'))?.value ?? []) as Repeat[];
+export const isRepeat = (rs: Repeat[] | undefined, item: string) => !!rs?.some(r => norm(r.item) === norm(item));
+
+export const toggleRepeat = (e: Entry) =>
+  db.transaction('rw', db.kv, async () => {
+    const rs = await getRepeats();
+    const next = isRepeat(rs, e.item)
+      ? rs.filter(r => norm(r.item) !== norm(e.item))
+      : [...rs, { item: e.item, amount: e.amount, category: e.category, emoji: e.emoji, day: +e.date.slice(8), last: e.date.slice(0, 7) }];
+    await db.kv.put({ key: 'repeats', value: next });
+    return next.length > rs.length;
+  });
+
+// Called on launch: adds every month's repeat that has come due since it was last added.
+export const addDueRepeats = () =>
+  db.transaction('rw', db.kv, db.entries, async () => {
+    const rs = await getRepeats();
+    const t = today();
+    let added = 0;
+    for (const r of rs)
+      for (;;) {
+        const [y, m] = r.last.split('-').map(Number); // m is 1-based, so Date(y, m) is the next month
+        const date = ymd(new Date(y, m, Math.min(r.day, new Date(y, m + 1, 0).getDate())));
+        if (date > t) break;
+        await db.entries.add({ item: r.item, quantity: 1, amount: r.amount, category: r.category, emoji: r.emoji, date, createdAt: Date.now() });
+        r.last = date.slice(0, 7);
+        added++;
+      }
+    if (added) await db.kv.put({ key: 'repeats', value: rs });
+    return added;
+  });

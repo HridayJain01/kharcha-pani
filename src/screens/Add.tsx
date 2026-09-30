@@ -3,7 +3,7 @@ import { aiParse, hasAI } from '../ai';
 import { EntryCard, EntryFields, EntrySheet } from '../components/Entry';
 import { db, saveDrafts, useCats, useLive, useToday, type Settings } from '../db';
 import { clink, coinBurst, confetti, toast } from '../fx';
-import { addDays, buildMemory, catOf, localParse, money, today, type Draft, type Entry } from '../lib';
+import { addDays, buildMemory, catOf, localParse, money, period, streak, today, type Draft, type Entry } from '../lib';
 import { cloudVoice, loadOffline, offlineReady, OFFLINE_MB, record, transcribe } from '../voice';
 
 const QUIPS = [
@@ -22,8 +22,8 @@ const QUIPS = [
 // Needs a secure context (https or localhost); over plain http the mic button just hides.
 const canRecord = typeof MediaRecorder !== 'undefined' && !!navigator.mediaDevices;
 
-// Once per day: if yesterday had no entries (and you were already logging before that), celebrate.
-async function cheerNoSpendYesterday() {
+// Once per day: celebrate a no-spend yesterday, and on Mondays a week under budget.
+async function cheerNoSpendYesterday(budget: number) {
   const y = addDays(today(), -1);
   try {
     if (localStorage.getItem('kp-cheered') === y) return;
@@ -35,12 +35,21 @@ async function cheerNoSpendYesterday() {
     confetti();
     toast('Yesterday was a NO-SPEND DAY! 🎉');
   }
+  const w = period('week', 1);
+  if (budget && new Date().getDay() === 1 && (await db.entries.where('date').below(w.start).count())) {
+    const spent = (await db.entries.where('date').between(w.start, w.end, true, true).toArray()).reduce((n, e) => n + e.amount, 0);
+    if (spent < (budget * 12) / 52) {
+      confetti();
+      toast('Last week came in UNDER BUDGET! 🥳');
+    }
+  }
 }
 
 export default function Add({ s }: { s: Settings }) {
   const cats = useCats();
   const day = useToday();
   const todays = useLive(() => db.entries.where('date').equals(day).reverse().sortBy('createdAt'), [day]);
+  const logged = useLive(() => db.entries.orderBy('date').uniqueKeys().then(k => new Set(k as string[])));
   const [text, setText] = useState('');
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [note, setNote] = useState('');
@@ -56,7 +65,7 @@ export default function Add({ s }: { s: Settings }) {
   const box = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    cheerNoSpendYesterday();
+    cheerNoSpendYesterday(s.budget);
     const timer = setInterval(() => setQuip(q => q + 1), 7000);
     return () => {
       clearInterval(timer);
@@ -169,6 +178,9 @@ export default function Add({ s }: { s: Settings }) {
           {money(total, s.currency)}
           {ouch && <span className="shake ml-2" role="img" aria-label="Ouch, big spend">👛</span>}
         </p>
+        {logged && streak(logged, day) > 1 && (
+          <p className="mt-3 inline-block rounded-full border-3 border-ink bg-white px-3 py-1 text-sm font-bold">🔥 {streak(logged, day)}-day logging streak</p>
+        )}
       </section>
 
       <form onSubmit={e => { e.preventDefault(); parse(text); }} className="card grid gap-3 p-3">

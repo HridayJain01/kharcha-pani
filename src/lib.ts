@@ -23,14 +23,14 @@ export const DEFAULT_CATEGORIES: Category[] = (
 
 // Built-in offline keywords for the default categories (code, not DB, so every install gets updates).
 const KEYWORDS: Record<string, string> = {
-  chai: 'chai, tea, coffee, cappuccino, latte, espresso, cold coffee, samosa, snack, biscuit, cookie, maggi, vada pav, pav bhaji, pakoda, pakora, bhajiya, kachori, poha, juice, lassi, chaas, cola, coke, pepsi, sprite, thums up, soft drink, cold drink, soda, bisleri, water bottle, ice cream, kulfi, chocolate, chips, namkeen, pani puri, golgappa, bhel, sev puri, dabeli, puff, cake, pastry, donut, sweets, mithai, jalebi, gulab jamun, paan, fries',
-  food: 'zomato, swiggy, eatsure, food, lunch, dinner, breakfast, brunch, meal, thali, biryani, pizza, burger, dosa, idli, vada, paratha, roti, naan, rice, dal, paneer, chicken, mutton, fish, egg, noodles, momo, roll, kebab, shawarma, sandwich, pasta, restaurant, cafe, canteen, mess, tiffin, dhaba, grocery, groceries, kirana, blinkit, zepto, instamart, bigbasket, dmart, milk, bread, vegetables, sabzi, fruits, atta, oil, ghee, curd, dahi, butter, ration, onion, pyaz, tomato, potato, aloo, garlic, ginger, lemon, banana, apple, mango, sugar, salt, masala',
-  travel: 'auto, rickshaw, e-rickshaw, uber, ola, rapido, metro, train, local train, bus, cab, taxi, petrol, diesel, fuel, cng, parking, toll, fastag, flight, irctc, redbus, bike, scooty, puncture, namma yatri, travel',
+  chai: 'चाय, समोसा, कॉफी, chai, tea, coffee, cappuccino, latte, espresso, cold coffee, samosa, snack, biscuit, cookie, maggi, vada pav, pav bhaji, pakoda, pakora, bhajiya, kachori, poha, juice, lassi, chaas, cola, coke, pepsi, sprite, thums up, soft drink, cold drink, soda, bisleri, water bottle, ice cream, kulfi, chocolate, chips, namkeen, pani puri, golgappa, bhel, sev puri, dabeli, puff, cake, pastry, donut, sweets, mithai, jalebi, gulab jamun, paan, fries',
+  food: 'खाना, सब्जी, दूध, राशन, sabzi, sabji, doodh, khana, ration, atta, zomato, swiggy, eatsure, food, lunch, dinner, breakfast, brunch, meal, thali, biryani, pizza, burger, dosa, idli, vada, paratha, roti, naan, rice, dal, paneer, chicken, mutton, fish, egg, noodles, momo, roll, kebab, shawarma, sandwich, pasta, restaurant, cafe, canteen, mess, tiffin, dhaba, grocery, groceries, kirana, blinkit, zepto, instamart, bigbasket, dmart, milk, bread, vegetables, sabzi, fruits, atta, oil, ghee, curd, dahi, butter, ration, onion, pyaz, tomato, potato, aloo, garlic, ginger, lemon, banana, apple, mango, sugar, salt, masala',
+  travel: 'ऑटो, रिक्शा, मेट्रो, पेट्रोल, बस, auto, rickshaw, e-rickshaw, uber, ola, rapido, metro, train, local train, bus, cab, taxi, petrol, diesel, fuel, cng, parking, toll, fastag, flight, irctc, redbus, bike, scooty, puncture, namma yatri, travel',
   shopping: 'amazon, flipkart, myntra, ajio, meesho, nykaa, shopping, clothes, shoes, shirt, t-shirt, tshirt, jeans, kurta, saree, dress, bag, gadget, phone, headphones, earphones, earbuds, charger, cable, laptop, stationery, book, decathlon, ikea, furniture, utensils, lenskart',
-  bills: 'recharge, phone recharge, rent, electricity, electricity bill, light bill, wifi, internet, broadband, jio, airtel, vi, bsnl, dth, tata play, subscription, netflix, amazon prime, hotstar, spotify, youtube premium, bill, emi, gas, cylinder, water bill, maintenance, insurance, loan, fees, society',
+  bills: 'बिजली, किराया, रिचार्ज, bijli, kiraya, recharge, phone recharge, rent, electricity, electricity bill, light bill, wifi, internet, broadband, jio, airtel, vi, bsnl, dth, tata play, subscription, netflix, amazon prime, hotstar, spotify, youtube premium, bill, emi, gas, cylinder, water bill, maintenance, insurance, loan, fees, society',
   fun: 'movie, movie ticket, cinema, pvr, inox, bookmyshow, outing, party, game, gaming, playstation, concert, bowling, drinks, beer, alcohol, liquor, pub, bar, club, trip, holiday, vacation, resort, arcade, match, turf, zoo, museum',
   care: 'health, medicine, medical, pharmacy, chemist, doctor, clinic, hospital, dentist, lab test, blood test, checkup, gym, yoga, haircut, salon, parlour, barber, spa, massage, grooming, skincare, shampoo, soap, toothpaste, sunscreen, cream, apollo, pharmeasy, 1mg, netmeds',
-  gifts: 'gift, present, donation, charity, birthday gift, wedding gift, shagun, temple, mandir, puja, church, gurudwara, offering, tip',
+  gifts: 'उपहार, gift, present, donation, charity, birthday gift, wedding gift, shagun, temple, mandir, puja, church, gurudwara, offering, tip',
 };
 
 export const catOf = (cats: Category[], id: string) =>
@@ -68,7 +68,7 @@ export const dayLabel = (s: string, t = today()) =>
 
 // Lowercase words with a trailing plural "s" dropped, so "Autos" and "auto" compare equal.
 export const norm = (s: string) =>
-  s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(' ')
+  s.toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ').trim().split(' ')
     .map(w => (w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w)).join(' ');
 
 const BUILTIN = Object.fromEntries(Object.entries(KEYWORDS).map(([id, list]) => [id, list.split(',').map(norm)]));
@@ -129,16 +129,18 @@ const UNITS: Record<string, number> = {
   eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19,
   twenty: 20, thirty: 30, forty: 40, fourty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90,
   ek: 1, do: 2, teen: 3, char: 4, chaar: 4, paanch: 5, panch: 5, chhe: 6, saat: 7, aath: 8, nau: 9, das: 10, bees: 20, pachas: 50, pachaas: 50,
+  gyarah: 11, barah: 12, pandrah: 15, pachees: 25, tees: 30, chalis: 40, chaalis: 40, sattar: 70, assi: 80, nabbe: 90, dedh: 1.5, derh: 1.5, dhai: 2.5, adhai: 2.5,
+  एक: 1, दो: 2, तीन: 3, चार: 4, पांच: 5, पाँच: 5, छह: 6, सात: 7, आठ: 8, नौ: 9, दस: 10, बीस: 20, पच्चीस: 25, तीस: 30, चालीस: 40, पचास: 50, साठ: 60, सत्तर: 70, अस्सी: 80, नब्बे: 90, डेढ़: 1.5, ढाई: 2.5,
 };
-const SCALES: Record<string, number> = { hundred: 100, sau: 100, thousand: 1000, hazar: 1000, hazaar: 1000, k: 1000, lakh: 100000, lac: 100000 };
-const CURRENCY = new Set(['rs', 'inr', 'rupee', 'rupees', 'rupaye', 'rupay', 'rupiya', 'bucks', '₹', '$']);
-const SPLIT = new Set([',', ';', '\n', '.', '&', '+', 'and', 'aur', 'then', 'plus', 'also']);
+const SCALES: Record<string, number> = { hundred: 100, sau: 100, thousand: 1000, hazar: 1000, hazaar: 1000, k: 1000, lakh: 100000, lac: 100000, सौ: 100, हज़ार: 1000, हजार: 1000, लाख: 100000 };
+const CURRENCY = new Set(['rs', 'inr', 'rupee', 'rupees', 'rupaye', 'rupay', 'rupiya', 'bucks', 'रुपये', 'रुपए', 'रुपया', 'रु', '₹', '$']);
+const SPLIT = new Set([',', ';', '\n', '.', '&', '+', 'and', 'aur', 'then', 'plus', 'also', 'और']);
 const CONNECT = new Set(['for', 'on', 'at', 'with', 'from', 'near', 'in', 'to']);
 const MEASURE = new Set('kg kgs g gm gms gram grams l ltr litre litres liter liters ml dozen pc pcs piece pieces plate plates packet packets pkt pack packs cup cups glass glasses bottle bottles box boxes'.split(' '));
 const DESCRIBE = new Set('subscription ticket tickets order fare charge charges fee fees refill'.split(' '));
-const FILLER = new Set('spent spend paid pay bought buy got get gave give took the a an of some my i me was were is it had have total only around about approx worth last'.split(' '));
+const FILLER = new Set('spent spend paid pay bought buy got get gave give took the a an of some my i me was were is it had have total only around about approx worth last ways way ka ki ke ko mein liye wala wali का की के को में लिए वाला'.split(' '));
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-const DAYS_BACK: Record<string, number> = { today: 0, aaj: 0, yesterday: 1, kal: 1, parso: 2 };
+const DAYS_BACK: Record<string, number> = { today: 0, aaj: 0, yesterday: 1, kal: 1, parso: 2, parson: 2, आज: 0, कल: 1, परसों: 2 };
 
 type Tok = { w: string; raw: string } | { n: number };
 const wordAt = (toks: Tok[], i: number) => (toks[i] && 'w' in toks[i] ? (toks[i] as { w: string }).w : '');
@@ -146,7 +148,7 @@ const wordAt = (toks: Tok[], i: number) => (toks[i] && 'w' in toks[i] ? (toks[i]
 // Words and numbers, with spoken numbers merged: "1.5k" = 1500, "two hundred and fifty" = 250,
 // "two fifty" = 250 (how prices are said out loud), "paanch sau" = 500.
 function tokenize(text: string): Tok[] {
-  const raw = text.replace(/(\d),(?=\d)/g, '$1').match(/\d+(?:\.\d+)?|[\p{L}\p{M}]+(?:[-'’][\p{L}\p{M}]+)*|[,;\n&+@×₹$]|\.(?!\d)/gu) ?? [];
+  const raw = text.replace(/[०-९]/g, d => String(d.charCodeAt(0) - 0x966)).replace(/(\d),(?=\d)/g, '$1').match(/\d+(?:\.\d+)?|[\p{L}\p{M}]+(?:[-'’][\p{L}\p{M}]+)*|[,;\n&+@×₹$]|\.(?!\d)/gu) ?? [];
   const low = raw.map(r => r.toLowerCase());
   const out: Tok[] = [];
   for (let i = 0; i < raw.length; i++) {
@@ -178,7 +180,7 @@ function tokenize(text: string): Tok[] {
 }
 
 type Num = { v: number; after: boolean; qty: boolean; unit: boolean; money: boolean };
-type Seg = { words: string[]; nums: Num[]; date?: string; tail?: boolean };
+type Seg = { words: string[]; nums: Num[]; date?: string; tail?: boolean; split?: number };
 
 // A chunk is complete once it has an item and a price: "chai 15", "200 groceries".
 const done = (s: Seg) => s.words.length > 0 && s.nums.some(n => !n.qty && (n.after || n.money || n.v > 20));
@@ -190,7 +192,7 @@ export function localParse(text: string, cats: Category[], memory: Memory = new 
   const segs: Seg[] = [];
   let cur: Seg = { words: [], nums: [] };
   let everyDate: string | undefined; // a date said before anything else covers every entry
-  let mark: 'qty' | 'unit' | 'money' | undefined; // how to read the next number
+  let mark: 'qty' | 'unit' | 'money' | 'split' | undefined; // how to read the next number
   let joiner = ''; // "for"/"with"… kept only if another item word follows
 
   const flush = () => {
@@ -208,6 +210,10 @@ export function localParse(text: string, cats: Category[], memory: Memory = new 
     const nextNum = i + 1 < toks.length && 'n' in toks[i + 1];
     const last = cur.nums.at(-1);
     if ('n' in tok) {
+      if (mark === 'split') { // "dinner 1200 split 4": you pay your share
+        [cur.split, mark] = [tok.n, undefined];
+        continue;
+      }
       // "samosa 2 30": a small count right before a bigger number is a quantity, not a price.
       if (prevNum && last?.after && cur.nums.length === 1 && !last.money && Number.isInteger(last.v) && last.v <= 10 && tok.n > last.v) last.qty = true;
       else if (done(cur)) flush();
@@ -218,7 +224,8 @@ export function localParse(text: string, cats: Category[], memory: Memory = new 
     }
     const w = tok.w;
     const weekday = WEEKDAYS.indexOf(w);
-    if (SPLIT.has(w)) flush();
+    if (w === 'split' || w === 'divided' || w === 'baant') mark = 'split';
+    else if (SPLIT.has(w)) flush();
     else if (CURRENCY.has(w)) {
       if (prevNum && last) last.money = true;
       else mark = 'money';
@@ -272,8 +279,9 @@ export function localParse(text: string, cats: Category[], memory: Memory = new 
     }
     const item = s.words.join(' ') || 'something';
     const cat = guessCategory(item, cats, memory);
-    const amount = price ? Math.round((price.unit ? price.v * quantity : price.v) * 100) / 100 : null;
-    return { item, quantity, amount, category: cat.id, date: s.date ?? everyDate ?? t, emoji: cat.emoji, photos: [] };
+    const parts = s.split && s.split > 1 ? s.split : 1;
+    const amount = price ? Math.round(((price.unit ? price.v * quantity : price.v) / parts) * 100) / 100 : null;
+    return { item: parts > 1 ? `${item} (1/${parts})` : item, quantity, amount, category: cat.id, date: s.date ?? everyDate ?? t, emoji: cat.emoji, photos: [] };
   });
 }
 
@@ -315,5 +323,24 @@ export function summarize(entries: Entry[], dayList: string[]) {
     biggest: entries.reduce<Entry | undefined>((m, e) => (m && m.amount >= e.amount ? m : e), undefined),
     topDay: topDay && { date: topDay[0], total: topDay[1] },
     noSpend: dayList.filter(d => !byDay[d]).length,
+    weekday: (group(e => String(toDate(e.date).getDay())).map(([d, es]) => [WEEKDAYS[+d], sum(es)] as const).sort((a, b) => b[1] - a[1])[0] ?? [])[0],
   };
 }
+
+// Days in a row with at least one entry, ending today (or yesterday, so the streak survives until you log today).
+export function streak(dates: Set<string>, t = today()) {
+  let d = dates.has(t) ? t : addDays(t, -1), n = 0;
+  for (; dates.has(d); d = addDays(d, -1)) n++;
+  return n;
+}
+
+// "₹1,200 = 80 chais = 4 movie tickets". ponytail: prices are rough Indian city averages, fixed.
+const THINGS = [['chais', 15, '☕'], ['samosas', 20, '🥟'], ['auto rides', 60, '🛺'], ['biryanis', 250, '🍛'], ['movie tickets', 300, '🎬'], ['iPhones', 80000, '📱']] as const;
+export const equiv = (n: number) =>
+  THINGS.filter(([, p]) => n >= p).slice(-2).map(([what, p, e]) => `${Math.floor(n / p).toLocaleString('en-IN')} ${what} ${e}`);
+
+// The guilt face: budget used (%) when there is a budget, else % change vs the last period.
+export const guilt = (budgetPct: number | null, changePct: number | null) => {
+  const v = budgetPct ?? (changePct === null ? 0 : 50 + changePct);
+  return v < 50 ? '😇' : v < 80 ? '😅' : v < 100 ? '😱' : '💀';
+};

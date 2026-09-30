@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Bar, BarChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { hasAI, roast } from '../ai';
+import { hasAI, horoscope, roast, shouldBuy } from '../ai';
 import { EntryCard, EntrySheet } from '../components/Entry';
 import { db, useCats, useLive, useToday, type Settings } from '../db';
 import { reducedMotion, toast } from '../fx';
-import { catOf, dayLabel, days, money, period, summarize, toDate, type Entry, type Unit } from '../lib';
+import { catOf, dayLabel, days, equiv, guilt, money, period, summarize, toDate, type Entry, type Unit } from '../lib';
 
 const UNITS = [['day', 'Today'], ['week', 'Week'], ['month', 'Month']] as const;
 const WORD = { day: 'daily', week: 'weekly', month: 'monthly' } as const;
@@ -30,6 +30,10 @@ export default function Overview({ s }: { s: Settings }) {
   const [sel, setSel] = useState<string>();
   const [roasting, setRoasting] = useState(false);
   const [editing, setEditing] = useState<Entry>();
+  const [wrapped, setWrapped] = useState(false);
+  const [buy, setBuy] = useState('');
+  const [verdict, setVerdict] = useState<{ verdict: string; why: string }>();
+  const [asking, setAsking] = useState(false);
 
   const p = period(unit, offset, t);
   const prev = period(unit, offset + 1, t);
@@ -39,6 +43,19 @@ export default function Overview({ s }: { s: Settings }) {
   const month = useLive(() => db.entries.where('date').between(m.start, m.end, true, true).toArray(), [m.start]);
   const first = useLive(() => db.entries.orderBy('date').first());
   const cached = useLive(() => db.kv.get(roastKey), [roastKey]);
+  const horoKey = `horo:${period('week', 0, t).start}`;
+  const horo = useLive(() => db.kv.get(horoKey), [horoKey]);
+  // Savings jar: each month's unspent budget, from your first month to now (this month counts what's left so far).
+  const jar = useLive(async () => {
+    if (!s.budget || !s.goalAmount) return 0;
+    const byMonth = new Map<string, number>();
+    await db.entries.each(e => { byMonth.set(e.date.slice(0, 7), (byMonth.get(e.date.slice(0, 7)) ?? 0) + e.amount); });
+    let saved = 0;
+    for (let [y, mo] = [...byMonth.keys()].sort()[0]?.split('-').map(Number) ?? [];
+      y && `${y}-${String(mo).padStart(2, '0')}` <= t.slice(0, 7); [y, mo] = mo === 12 ? [y + 1, 1] : [y, mo + 1])
+      saved += Math.max(0, s.budget - (byMonth.get(`${y}-${String(mo).padStart(2, '0')}`) ?? 0));
+    return saved;
+  }, [s.budget, s.goalAmount, t]);
   if (!range || !cats) return null;
 
   const $ = (n: number) => money(n, s.currency);
@@ -54,6 +71,32 @@ export default function Overview({ s }: { s: Settings }) {
   const top = S.items[0];
   const saved = cached?.value as Roast | undefined;
   const roasted = saved && saved.total === S.total && saved.count === S.count ? saved : undefined; // re-roast once the numbers change
+
+  const context = () => ({
+    currency: s.currency,
+    ...(s.budget ? { monthlyBudget: s.budget, spentThisMonth: monthTotal } : {}),
+    thisPeriod: { total: S.total, topCategories: S.byCat.slice(0, 3).map(c => catOf(cats, c.id).name), topItems: S.items.slice(0, 3).map(i => i.item) },
+  });
+  const askBuy = async () => {
+    setAsking(true);
+    try {
+      setVerdict(await shouldBuy(buy.trim(), context()));
+    } catch (e) {
+      toast(`AI hiccup: ${(e as Error).message}`);
+    } finally {
+      setAsking(false);
+    }
+  };
+  const doHoro = async () => {
+    setAsking(true);
+    try {
+      await db.kv.put({ key: horoKey, value: await horoscope(context()) });
+    } catch (e) {
+      toast(`The stars are offline: ${(e as Error).message}`);
+    } finally {
+      setAsking(false);
+    }
+  };
 
   const pie = S.byCat.map(c => {
     const k = catOf(cats, c.id);
@@ -114,7 +157,8 @@ export default function Overview({ s }: { s: Settings }) {
         <button className="btn w-12 shrink-0 bg-white px-0" aria-label="Later" disabled={!offset} onClick={() => go(() => setOffset(o => o - 1))}>▶</button>
       </div>
 
-      <section className="card bg-sunny p-4 text-center">
+      <section className="card relative bg-sunny p-4 text-center">
+        <span className="absolute right-3 top-2 text-4xl" role="img" aria-label="Guilt meter">{guilt(s.budget ? fill : null, pct)}</span>
         <p className="label">Total spent</p>
         <p className="mt-1 font-display text-6xl leading-none break-all">{$(S.total)}</p>
         {pct !== null && (
@@ -122,6 +166,7 @@ export default function Overview({ s }: { s: Settings }) {
             {pct > 0 ? '↑' : pct < 0 ? '↓' : '='} {Math.abs(pct)}% vs {vs}
           </p>
         )}
+        {s.currency === '₹' && S.total > 0 && <p className="mt-2 text-sm font-bold">= {equiv(S.total).join(' = ')}</p>}
       </section>
 
       {s.budget > 0 && (
@@ -137,6 +182,20 @@ export default function Overview({ s }: { s: Settings }) {
           <p className="mt-1 text-sm font-bold">
             {fill > 100 ? `Over by ${$(monthTotal - s.budget)} 😬` : fill > 80 ? 'Careful, nearly there 🫣' : `${$(s.budget - monthTotal)} left 👍`}
           </p>
+        </section>
+      )}
+
+      {!!s.goalAmount && !!s.budget && jar !== undefined && (
+        <section className="card flex items-center gap-3 p-3">
+          <div className="relative h-20 w-14 shrink-0 overflow-hidden rounded-b-2xl rounded-t-md border-3 border-ink bg-white" aria-hidden>
+            <div className="absolute inset-x-0 bottom-0 bg-lime" style={{ height: `${Math.min(100, (jar / s.goalAmount) * 100)}%` }} />
+            <span className="absolute inset-0 grid place-items-center text-2xl">🪙</span>
+          </div>
+          <div className="min-w-0">
+            <p className="label">🫙 {s.goal || 'Savings jar'}</p>
+            <p className="font-display text-2xl">{$(Math.min(jar, s.goalAmount))} / {$(s.goalAmount)}</p>
+            <p className="text-sm font-bold">{jar >= s.goalAmount ? 'Jar full! Go treat yourself 🎉' : `${Math.round((jar / s.goalAmount) * 100)}% there, from money you didn't spend`}</p>
+          </div>
         </section>
       )}
 
@@ -224,7 +283,12 @@ export default function Overview({ s }: { s: Settings }) {
             <Stat icon="💥" title="Biggest hit" value={S.biggest ? $(S.biggest.amount) : '—'} sub={S.biggest && cap(S.biggest.item)} />
             <Stat icon="📅" title="Priciest day" value={S.topDay ? $(S.topDay.total) : '—'} sub={S.topDay && dayLabel(S.topDay.date, t)} />
             <Stat icon="🧘" title="No-spend days" value={String(S.noSpend)} sub={S.noSpend ? 'Legend behaviour' : 'Not a single one'} />
+            {unit !== 'day' && S.weekday && <Stat icon="🍻" title="Spendiest day" value={`${cap(S.weekday)}s`} sub="Your wallet's weak spot" />}
           </section>
+
+          {unit === 'month' && (
+            <button className="btn min-h-14 bg-pink text-lg" onClick={() => setWrapped(true)}>🎁 {toDate(p.start).toLocaleDateString('en-IN', { month: 'long' })} Wrapped</button>
+          )}
 
           <section className="grid gap-6 pb-2">
             <button className="btn min-h-16 bg-tomato font-display text-3xl font-normal" disabled={roasting || !hasAI(s) || !!roasted} onClick={doRoast}>
@@ -241,6 +305,40 @@ export default function Overview({ s }: { s: Settings }) {
         </>
       )}
 
+      {hasAI(s) && (
+        <section className="grid gap-3 pb-2">
+          <div className="card grid gap-2 p-3">
+            <h2 className="font-display text-2xl">Should I buy it? 🤔</h2>
+            <div className="flex gap-2">
+              <input className="input min-w-0 flex-1 font-bold" placeholder="AirPods 25000" value={buy} maxLength={80}
+                onChange={e => { setBuy(e.target.value); setVerdict(undefined); }} onKeyDown={e => e.key === 'Enter' && buy.trim() && askBuy()} />
+              <button className="btn bg-sunny" disabled={asking || !buy.trim()} onClick={askBuy}>Judge</button>
+            </div>
+            {verdict && (
+              <p className="font-bold" aria-live="polite">
+                <span className={`mr-2 rounded-full border-3 border-ink px-2 ${verdict.verdict.startsWith('BUY') ? 'bg-lime' : 'bg-tomato'}`}>{verdict.verdict}</span>
+                {verdict.why}
+              </p>
+            )}
+          </div>
+          <div className="card grid gap-2 bg-grape p-3">
+            <h2 className="font-display text-2xl">🔮 Money horoscope</h2>
+            {horo ? <p className="font-bold">{String(horo.value)}</p>
+              : <button className="btn bg-white" disabled={asking} onClick={doHoro}>Read my stars this week</button>}
+          </div>
+        </section>
+      )}
+
+      {wrapped && <Wrapped onClose={() => setWrapped(false)} month={toDate(p.start).toLocaleDateString('en-IN', { month: 'long' })}
+        slides={[
+          ['💸', 'You spent', $(S.total), s.currency === '₹' ? `That's ${equiv(S.total).join(' or ')}` : `${S.count} entries`],
+          ...(S.byCat[0] ? [[catOf(cats, S.byCat[0].id).emoji, 'Top category', catOf(cats, S.byCat[0].id).name, `${$(S.byCat[0].total)}, ${Math.round((S.byCat[0].total / S.total) * 100)}% of everything`]] : []),
+          ...(S.biggest ? [['💥', 'Biggest splurge', cap(S.biggest.item), $(S.biggest.amount)]] : []),
+          ...(top && top.qty > 1 ? [['🔁', 'On repeat', `${cap(top.item)} × ${top.qty}`, `You really like ${top.item}`]] : []),
+          ...(S.weekday ? [['🍻', 'Spendiest day', `${cap(S.weekday)}s`, 'Noted.']] : []),
+          ['🧘', 'No-spend days', String(S.noSpend), S.noSpend ? 'Discipline arc 🙏' : 'Zero. Not one.'],
+        ] as [string, string, string, string][]} />}
+
       {editing && <EntrySheet entry={editing} cats={cats} cur={s.currency} onClose={() => setEditing(undefined)} />}
     </div>
   );
@@ -253,5 +351,41 @@ function Stat({ icon, title, value, sub }: { icon: string; title: string; value:
       <p className="mt-1 font-display text-2xl leading-tight break-words">{value}</p>
       {sub && <p className="truncate text-sm font-bold">{sub}</p>}
     </div>
+  );
+}
+
+// Spotify-Wrapped-style swipe cards (CSS scroll snap), shared as text via the native share sheet.
+function Wrapped({ month, slides, onClose }: { month: string; slides: [string, string, string, string][]; onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => { ref.current?.showModal(); }, []);
+  const text = `My ${month} on Kharcha Pani 💸\n` + slides.map(([e, t, v]) => `${e} ${t}: ${v}`).join('\n');
+  const share = async () => {
+    try {
+      if (navigator.share) await navigator.share({ text });
+      else await navigator.clipboard.writeText(text).then(() => toast('Copied, go paste it 📋'));
+    } catch {
+      // share sheet dismissed
+    }
+  };
+  return (
+    <dialog ref={ref} onClose={onClose} className="sheet" aria-label={`${month} Wrapped`}>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="font-display text-3xl">{month} Wrapped 🎁</h2>
+        <button className="btn size-12 bg-white px-0" onClick={onClose} aria-label="Close">✕</button>
+      </div>
+      <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-3 [scrollbar-width:none]">
+        {slides.map(([emoji, label, value, sub], i) => (
+          <div key={label} className="card flex min-h-72 w-[85%] shrink-0 snap-center flex-col items-center justify-center gap-2 p-5 text-center"
+            style={{ background: ['#FFD23F', '#FF4FA3', '#B8F135', '#3A86FF', '#FF9F1C', '#9B5DE5'][i % 6] }}>
+            <span className="text-6xl" aria-hidden>{emoji}</span>
+            <p className="label">{label}</p>
+            <p className="font-display text-4xl leading-tight break-words">{value}</p>
+            <p className="font-bold">{sub}</p>
+          </div>
+        ))}
+      </div>
+      <p className="mb-3 text-center text-sm font-bold">swipe →</p>
+      <button className="btn w-full bg-lime text-lg" onClick={share}>Share it 📤</button>
+    </dialog>
   );
 }

@@ -1,5 +1,5 @@
 // Run with `npm test` (Node strips the types). Throws on the first mismatch.
-import { buildMemory, DEFAULT_CATEGORIES as cats, days, isYmd, localParse, period, summarize, type Entry, type Memory } from './lib.ts';
+import { buildMemory, DEFAULT_CATEGORIES as cats, days, equiv, streak, isYmd, localParse, period, summarize, type Entry, type Memory } from './lib.ts';
 
 const eq = (got: unknown, want: unknown) => {
   if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`\n got: ${JSON.stringify(got)}\nwant: ${JSON.stringify(want)}`);
@@ -61,3 +61,12 @@ const s = summarize([e('Chai', 30, '2026-09-21', 2), e('chai ', 15, '2026-09-23'
 eq([s.total, s.items[0], s.biggest?.item, s.topDay, s.noSpend], [2544, { item: 'Chai', qty: 3, total: 45 }, 'Shoes', { date: '2026-09-23', total: 2514 }, 3]);
 
 console.log('✅ lib checks passed');
+
+// Hindi / Hinglish, split bills, streaks
+eq(parse('dedh sau ki sabzi, paanch sau ka petrol'), [['sabzi', 1, 150, 'food', T], ['petrol', 1, 500, 'travel', T]]);
+eq(parse('कल चाय १५ और ऑटो पचास'), [['चाय', 1, 15, 'chai', Y], ['ऑटो', 1, 50, 'travel', Y]]);
+eq(parse('dinner 1200 split 4'), [['dinner (1/4)', 1, 300, 'food', T]]);
+eq(parse('pizza 900 split in 3 ways, chai 20'), [['pizza (1/3)', 1, 300, 'food', T], ['chai', 1, 20, 'chai', T]]);
+eq(streak(new Set([Y, '2026-09-23', '2026-09-21']), T), 2);
+eq(equiv(1200), ['4 biryanis 🍛', '4 movie tickets 🎬']);
+console.log('extras ok');

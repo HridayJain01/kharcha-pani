@@ -246,6 +246,19 @@ export default function Settings({ s }: { s: S }) {
               defaultValue={s.budget || ''} onChange={e => saveSettings({ budget: Math.max(0, Number(e.target.value) || 0) })} />
           </label>
         </div>
+        <div className="flex items-end gap-3">
+          <label className="grid flex-1 gap-1">
+            <span className="label">🫙 Saving up for</span>
+            <input className="input font-bold" maxLength={40} placeholder="Goa trip" defaultValue={s.goal}
+              onChange={e => saveSettings({ goal: e.target.value.trim() })} />
+          </label>
+          <label className="grid w-32 gap-1">
+            <span className="label">Goal</span>
+            <input className="input font-display text-xl" type="number" inputMode="numeric" min="0" placeholder="15000"
+              defaultValue={s.goalAmount || ''} onChange={e => saveSettings({ goalAmount: Math.max(0, Number(e.target.value) || 0) })} />
+          </label>
+        </div>
+        <p className="text-sm font-bold">Whatever you don't spend of your budget each month drops into the jar (Overview).</p>
       </Section>
 
       <Section title="🏷️ Categories">

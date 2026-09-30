@@ -40,7 +40,7 @@ Even with AI on, your own history wins: an item you've filed the same way twice 
 
 Tap the mic, talk, tap again. What you said appears in the box and gets parsed straight away.
 
-- **With a Groq key and signal:** Groq's hosted **Whisper large-v3-turbo** transcribes it. This is the most accurate option (about 1 s; free tier: 2,000 notes a day).
+- **With a Groq key and signal:** Groq's hosted **Whisper large-v3** transcribes it, in English, Hindi or Hinglish. This is the most accurate option (about 1 s; free tier: 2,000 notes a day).
 - **Otherwise:** a small speech model runs **on your phone**: [Moonshine base](https://huggingface.co/onnx-community/moonshine-base-ONNX) via Transformers.js, in a background worker. It downloads once (~80 MB, and the app asks first), then works fully offline and privately. Warm transcription takes well under a second on a laptop, a bit longer on phones. You can also download or remove it in **Settings → Voice**.
 
 The keyboard's own dictation mic works in the box too.

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { db, deleteEntry, updateEntry } from '../db';
+import { db, deleteEntry, getRepeats, isRepeat, toggleRepeat, updateEntry, useLive } from '../db';
 import { toast } from '../fx';
 import { money, today, type Category, type Draft, type Entry, type PhotoRef } from '../lib';
 
@@ -30,6 +30,8 @@ export function EntryFields({ d, cats, cur, onChange }: {
   return (
     <div className="grid gap-2">
       <div className="flex gap-2">
+        <input className="input w-14 shrink-0 px-0 text-center text-2xl" value={d.emoji} aria-label="Emoji"
+          onChange={e => onChange({ emoji: [...new Intl.Segmenter().segment(e.target.value.trim())].at(-1)?.segment ?? '' })} />
         <input className="input min-w-0 flex-1 text-lg font-bold" value={d.item} aria-label="Item" placeholder="What?"
           onChange={e => onChange({ item: e.target.value })} />
         <label className={`input flex w-36 shrink-0 items-center gap-1 ${d.amount ? '' : 'bg-tomato/25'}`}>
@@ -56,6 +58,7 @@ export function EntrySheet({ entry, cats, cur, onClose }: { entry: Entry; cats: 
   const ref = useRef<HTMLDialogElement>(null);
   const [d, setD] = useState<Draft>({ ...entry, photos: [] });
   const [ready, setReady] = useState(false);
+  const repeats = useLive(getRepeats);
 
   useEffect(() => {
     if (!ref.current?.open) ref.current?.showModal();
@@ -90,6 +93,11 @@ export function EntrySheet({ entry, cats, cur, onClose }: { entry: Entry; cats: 
         <button className="btn size-12 bg-white px-0" onClick={onClose} aria-label="Close">✕</button>
       </div>
       <EntryFields d={d} cats={cats} cur={cur} onChange={p => setD(d => ({ ...d, ...p }))} />
+      <label className="mt-3 flex min-h-12 items-center gap-2 font-bold">
+        <input type="checkbox" className="size-6 accent-ink" checked={isRepeat(repeats, entry.item)}
+          onChange={async () => toast((await toggleRepeat({ ...entry, ...d, amount: d.amount ?? entry.amount })) ? 'Added every month 🔁' : 'Stopped repeating')} />
+        🔁 Repeat every month (rent, Netflix…)
+      </label>
       <div className="mt-4 flex gap-3">
         <button className="btn bg-tomato" onClick={remove}>🗑️ Delete</button>
         <button className="btn flex-1 bg-lime text-lg" disabled={!ready || !d.item.trim() || !(Number(d.amount) > 0)} onClick={save}>

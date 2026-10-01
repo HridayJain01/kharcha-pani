@@ -1,8 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { PROVIDERS, SHARED, testKey } from '../ai';
-import { db, DEFAULT_SETTINGS, getSettings, saveSettings, useCats, type Provider, type Settings as S } from '../db';
+import { db, DEFAULT_SETTINGS, getRepeats, useLive, getSettings, saveSettings, useCats, type Provider, type Settings as S } from '../db';
 import { toast } from '../fx';
-import { catOf, isYmd, today, type Category, type Entry } from '../lib';
+import { catOf, guessCategory, isYmd, money, today, ymd, type Category, type Entry } from '../lib';
 import { loadOffline, offlineReady, OFFLINE_MB, removeOffline } from '../voice';
 
 const PALETTE = ['#B8F135', '#FFD23F', '#9B5DE5', '#FF5A36', '#3A86FF', '#FF4FA3'];
@@ -110,13 +110,13 @@ export default function Settings({ s }: { s: S }) {
   // ponytail: the whole zip is built in memory; fine for hundreds of photos, stream it if it ever grows to thousands.
   async function backup() {
     const { default: JSZip } = await import('jszip');
-    const [entries, categories, photos, settings] =
-      await Promise.all([db.entries.toArray(), db.categories.toArray(), db.photos.toArray(), getSettings()]);
+    const [entries, categories, photos, settings, repeats] =
+      await Promise.all([db.entries.toArray(), db.categories.toArray(), db.photos.toArray(), getSettings(), getRepeats()]);
     const zip = new JSZip();
     zip.file('data.json', JSON.stringify({
       app: 'kharcha-pani', version: 1, exportedAt: new Date().toISOString(),
       settings: { ...settings, apiKey: undefined }, // the key never leaves the device
-      categories, entries, photos: photos.map(p => ({ id: p.id, entryId: p.entryId })),
+      categories, entries, repeats, photos: photos.map(p => ({ id: p.id, entryId: p.entryId })),
     }));
     for (const p of photos) zip.file(`photos/${p.id}.jpg`, p.blob);
     await saveFile(await zip.generateAsync({ type: 'blob' }), `kharcha-pani-backup-${today()}.zip`);
@@ -149,6 +149,10 @@ export default function Settings({ s }: { s: S }) {
         await db.entries.bulkAdd(entries);
         await db.categories.bulkAdd(categories);
         await db.photos.bulkAdd(photos);
+        // older backups have no repeats: keep whatever is set up here
+        if (Array.isArray(data.repeats)) await db.kv.put({ key: 'repeats', value: data.repeats
+          .filter((r: any) => r?.item && Number(r.amount) > 0 && /^\d{4}-\d{2}$/.test(r.last))
+          .map((r: any) => ({ item: String(r.item).slice(0, 60), amount: Number(r.amount), category: String(r.category), emoji: String(r.emoji ?? ''), day: Math.min(31, Math.max(1, Number(r.day) || 1)), last: r.last })) });
         await saveSettings({
           ...(typeof st.currency === 'string' && st.currency ? { currency: st.currency.slice(0, 4) } : {}),
           ...(Number(st.budget) >= 0 ? { budget: Number(st.budget) } : {}),
@@ -261,6 +265,10 @@ export default function Settings({ s }: { s: S }) {
         <p className="text-sm font-bold">Whatever you don't spend of your budget each month drops into the jar (Overview).</p>
       </Section>
 
+      <Section title="🔁 Recurring costs">
+        <Recurring cur={s.currency} />
+      </Section>
+
       <Section title="🏷️ Categories">
         <p className="text-sm font-medium">Keywords help the AI and the offline parser pick the right one.</p>
         {cats.map(c => (
@@ -305,6 +313,44 @@ export default function Settings({ s }: { s: S }) {
       </Section>
 
       <p className="pb-2 text-center text-sm font-bold">Kharcha Pani · made with chai ☕</p>
+    </div>
+  );
+}
+
+// Rent, Netflix…: added automatically each month on the same day. New ones start from the 🔁 box when editing an entry.
+function Recurring({ cur }: { cur: string }) {
+  const rs = useLive(getRepeats);
+  const [draft, setDraft] = useState({ item: '', amount: '', day: '1' });
+  const cats = useCats();
+  const put = (value: unknown) => db.kv.put({ key: 'repeats', value });
+  async function add() {
+    const day = Math.min(31, Math.max(1, Number(draft.day) || 1));
+    const t = today();
+    // starts this month if the day hasn't passed yet, otherwise next month
+    const [y, m] = t.split('-').map(Number);
+    const last = day > +t.slice(8) ? ymd(new Date(y, m - 2, 1)).slice(0, 7) : t.slice(0, 7);
+    const g = guessCategory(draft.item, cats ?? []);
+    await put([...(rs ?? []), { item: draft.item.trim(), amount: Number(draft.amount), category: g.id, emoji: g.emoji, day, last }]);
+    setDraft({ item: '', amount: '', day: '1' });
+    toast('Added 🔁');
+  }
+  return (
+    <div className="grid gap-2">
+      {rs?.map((r, i) => (
+        <div key={r.item} className="card flex items-center gap-2 p-2">
+          <span className="text-2xl">{r.emoji}</span>
+          <span className="min-w-0 flex-1 truncate font-bold">{r.item}</span>
+          <span className="text-sm font-bold">{money(r.amount, cur)} · day {r.day}</span>
+          <button className="btn w-12 shrink-0 bg-white px-0" aria-label={`Stop ${r.item}`} onClick={() => put(rs.filter((_, j) => j !== i))}>🗑️</button>
+        </div>
+      ))}
+      {!rs?.length && <p className="text-sm font-bold">Nothing recurring yet.</p>}
+      <div className="flex gap-2">
+        <input className="input min-w-0 flex-1 font-bold" placeholder="Netflix" value={draft.item} onChange={e => setDraft({ ...draft, item: e.target.value })} />
+        <input className="input w-24" type="number" inputMode="numeric" placeholder="649" aria-label="Amount" value={draft.amount} onChange={e => setDraft({ ...draft, amount: e.target.value })} />
+        <input className="input w-16" type="number" min="1" max="31" aria-label="Day of month" value={draft.day} onChange={e => setDraft({ ...draft, day: e.target.value })} />
+      </div>
+      <button className="btn bg-lime" disabled={!draft.item.trim() || !(Number(draft.amount) > 0)} onClick={add}>＋ Add recurring cost</button>
     </div>
   );
 }

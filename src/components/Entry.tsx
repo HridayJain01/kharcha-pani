@@ -135,11 +135,19 @@ function Photos({ photos, onChange }: { photos: PhotoRef[]; onChange: (p: PhotoR
         </span>
       ))}
       {photos.length < 3 && (
-        <label className="btn bg-white text-sm">
-          {busy ? '⏳' : '📷'} Photo
-          <input type="file" accept="image/*" multiple className="sr-only"
-            onChange={e => { add([...(e.target.files ?? [])]); e.target.value = ''; }} />
-        </label>
+        <>
+          {/* Android hides the camera when `multiple` is set, so the camera gets its own button */}
+          <label className="btn bg-white text-sm">
+            {busy ? '⏳' : '📸'} Camera
+            <input type="file" accept="image/*" capture="environment" className="sr-only"
+              onChange={e => { add([...(e.target.files ?? [])]); e.target.value = ''; }} />
+          </label>
+          <label className="btn bg-white text-sm">
+            {busy ? '⏳' : '🖼️'} Gallery
+            <input type="file" accept="image/*" multiple className="sr-only"
+              onChange={e => { add([...(e.target.files ?? [])]); e.target.value = ''; }} />
+          </label>
+        </>
       )}
     </>
   );

@@ -1,5 +1,5 @@
 // Run with `npm test` (Node strips the types). Throws on the first mismatch.
-import { buildMemory, DEFAULT_CATEGORIES as cats, days, equiv, streak, isYmd, localParse, period, summarize, type Entry, type Memory } from './lib.ts';
+import { balances, buildMemory, pullUdhaar, DEFAULT_CATEGORIES as cats, days, equiv, streak, isYmd, localParse, period, summarize, type Entry, type Memory } from './lib.ts';
 
 const eq = (got: unknown, want: unknown) => {
   if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`\n got: ${JSON.stringify(got)}\nwant: ${JSON.stringify(want)}`);
@@ -70,3 +70,25 @@ eq(parse('pizza 900 split in 3 ways, chai 20'), [['pizza (1/3)', 1, 300, 'food',
 eq(streak(new Set([Y, '2026-09-23', '2026-09-21']), T), 2);
 eq(equiv(1200), ['4 biryanis 🍛', '4 movie tickets 🎬']);
 console.log('extras ok');
+
+// udhaar: pulled out before the normal parser, reason optional, split-with names owe you their share
+const u = (s: string) => {
+  const r = pullUdhaar(s, cats, undefined, T);
+  return [parse(r.rest), r.drafts.map(d => [d.iou ?? d.category, d.person ?? '', d.item, d.amount, d.date])];
+};
+eq(u('chai 15, gave rahul 500 for books, amit se 200 liye'), [[['chai', 1, 15, 'chai', T]], [['lent', 'Rahul', 'books', 500, T], ['borrowed', 'Amit', '', 200, T]]]);
+eq(u('Rahul paid back 300 yesterday. returned 200 to amit; rahul ko paanch sau diye'), [[], [
+  ['got', 'Rahul', '', 300, Y], ['repaid', 'Amit', '', 200, T], ['lent', 'Rahul', '', 500, T],
+]]);
+eq(u('took 1,500 from papa for rent, paid amit back 50, got 100 back from neha'), [[], [
+  ['borrowed', 'Papa', 'rent', 1500, T], ['repaid', 'Amit', '', 50, T], ['got', 'Neha', '', 100, T],
+]]);
+eq(u('dinner 1200 split with rahul, amit, chai 15'), [[['chai', 1, 15, 'chai', T]], [
+  ['food', '', 'dinner (1/3)', 400, T], ['lent', 'Rahul', 'dinner', 400, T], ['lent', 'Amit', 'dinner', 400, T],
+]]);
+// not udhaar: plain payments and "took a cab from…" stay spending
+eq(u('took cab from station 200, paid 500 for electricity bill')[1], []);
+const ious = pullUdhaar('gave rahul 500, Rahul paid back 200, amit se 300 liye, neha ko 100 diye, neha returned 100', cats, undefined, T).drafts
+  .map((d, i) => ({ ...d, id: i, amount: d.amount!, createdAt: 0 }));
+eq(balances(ious).map(b => [b.name, b.net]), [['Rahul', 300], ['Amit', -300], ['Neha', 0]]);
+console.log('udhaar ok');

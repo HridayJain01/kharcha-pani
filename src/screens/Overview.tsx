@@ -4,7 +4,7 @@ import { hasAI, horoscope, roast, shouldBuy } from '../ai';
 import { EntryCard, EntrySheet } from '../components/Entry';
 import { db, useCats, useLive, useToday, type Settings } from '../db';
 import { reducedMotion, toast } from '../fx';
-import { catOf, dayLabel, days, equiv, guilt, money, period, summarize, toDate, type Entry, type Unit } from '../lib';
+import { balances, catOf, dayLabel, days, equiv, guilt, money, period, summarize, toDate, UDHAAR, type Entry, type Unit } from '../lib';
 
 const UNITS = [['day', 'Today'], ['week', 'Week'], ['month', 'Month']] as const;
 const WORD = { day: 'daily', week: 'weekly', month: 'monthly' } as const;
@@ -39,9 +39,11 @@ export default function Overview({ s }: { s: Settings }) {
   const prev = period(unit, offset + 1, t);
   const m = period('month', 0, p.end);
   const roastKey = `roast:${unit}:${p.start}`;
-  const range = useLive(() => db.entries.where('date').between(prev.start, p.end, true, true).toArray(), [prev.start, p.end]);
-  const month = useLive(() => db.entries.where('date').between(m.start, m.end, true, true).toArray(), [m.start]);
-  const first = useLive(() => db.entries.orderBy('date').first());
+  // Udhaar is never spending: it's left out of every total, the budget and the jar.
+  const range = useLive(() => db.entries.where('date').between(prev.start, p.end, true, true).filter(e => !e.iou).toArray(), [prev.start, p.end]);
+  const month = useLive(() => db.entries.where('date').between(m.start, m.end, true, true).filter(e => !e.iou).toArray(), [m.start]);
+  const first = useLive(() => db.entries.orderBy('date').filter(e => !e.iou).first());
+  const ious = useLive(() => db.entries.filter(e => !!e.iou).toArray()); // ponytail: full scan, add an index if entries reach the 10k range
   const cached = useLive(() => db.kv.get(roastKey), [roastKey]);
   const horoKey = `horo:${period('week', 0, t).start}`;
   const horo = useLive(() => db.kv.get(horoKey), [horoKey]);
@@ -49,7 +51,7 @@ export default function Overview({ s }: { s: Settings }) {
   const jar = useLive(async () => {
     if (!s.budget || !s.goalAmount) return 0;
     const byMonth = new Map<string, number>();
-    await db.entries.each(e => { byMonth.set(e.date.slice(0, 7), (byMonth.get(e.date.slice(0, 7)) ?? 0) + e.amount); });
+    await db.entries.each(e => { if (!e.iou) byMonth.set(e.date.slice(0, 7), (byMonth.get(e.date.slice(0, 7)) ?? 0) + e.amount); });
     let saved = 0;
     for (let [y, mo] = [...byMonth.keys()].sort()[0]?.split('-').map(Number) ?? [];
       y && `${y}-${String(mo).padStart(2, '0')}` <= t.slice(0, 7); [y, mo] = mo === 12 ? [y + 1, 1] : [y, mo + 1])
@@ -168,6 +170,8 @@ export default function Overview({ s }: { s: Settings }) {
         )}
         {s.currency === '₹' && S.total > 0 && <p className="mt-2 text-sm font-bold">= {equiv(S.total).join(' = ')}</p>}
       </section>
+
+      {!!ious?.length && <Udhaar es={ious} cur={s.currency} onEdit={setEditing} />}
 
       {s.budget > 0 && (
         <section className="card p-3">
@@ -341,6 +345,57 @@ export default function Overview({ s }: { s: Settings }) {
 
       {editing && <EntrySheet entry={editing} cats={cats} cur={s.currency} onClose={() => setEditing(undefined)} />}
     </div>
+  );
+}
+
+// All-time, not tied to the period above: who owes you, who you owe, and every entry behind it.
+function Udhaar({ es, cur, onEdit }: { es: Entry[]; cur: string; onEdit: (e: Entry) => void }) {
+  const [open, setOpen] = useState<string>();
+  const bs = balances(es);
+  const take = bs.filter(b => b.net > 0), give = bs.filter(b => b.net < 0), settled = bs.filter(b => !b.net);
+  const total = (l: typeof bs) => money(l.reduce((n, b) => n + Math.abs(b.net), 0), cur);
+  const list = (l: typeof bs) => l.map(b => (
+    <div key={b.name.toLowerCase()}>
+      <button className="flex min-h-12 w-full items-center justify-between gap-2 text-left font-bold" aria-expanded={open === b.name}
+        onClick={() => setOpen(open === b.name ? undefined : b.name)}>
+        <span className="truncate">{open === b.name ? '▾' : '▸'} {b.name}</span>
+        <span className="shrink-0 font-display text-xl">{b.net ? money(Math.abs(b.net), cur) : '✔'}</span>
+      </button>
+      {open === b.name && (
+        <div className="grid gap-2 pb-2">
+          {b.entries.toSorted((x, y) => y.date.localeCompare(x.date) || y.createdAt - x.createdAt).map(e => (
+            <div key={e.id}>
+              <p className="text-xs font-bold">{dayLabel(e.date)}</p>
+              <EntryCard e={e} cat={UDHAAR} cur={cur} onClick={() => onEdit(e)} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  ));
+  return (
+    <section className="card grid gap-3 p-3">
+      <h2 className="font-display text-2xl">Udhaar 🤝</h2>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-lg border-3 border-ink bg-lime p-3">
+          <p className="label">🫴 To take</p>
+          <p className="font-display text-3xl">{total(take)}</p>
+          {take.length ? list(take) : <p className="text-sm font-bold">Nobody owes you 🙌</p>}
+        </div>
+        <div className="rounded-lg border-3 border-ink bg-tomato/40 p-3">
+          <p className="label">🫳 To give</p>
+          <p className="font-display text-3xl">{total(give)}</p>
+          {give.length ? list(give) : <p className="text-sm font-bold">You owe nobody 😎</p>}
+        </div>
+      </div>
+      {settled.length > 0 && (
+        <details>
+          <summary className="min-h-12 cursor-pointer content-center font-bold">✔ All settled with {settled.length} {settled.length > 1 ? 'people' : 'person'}</summary>
+          {list(settled)}
+        </details>
+      )}
+      <p className="text-xs font-bold">Log it on Add: "gave rahul 500 for books", "amit se 200 liye", "rahul paid back 300".</p>
+    </section>
   );
 }
 

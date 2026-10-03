@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { db, deleteEntry, getRepeats, isRepeat, toggleRepeat, updateEntry, useLive } from '../db';
 import { toast } from '../fx';
-import { money, today, type Category, type Draft, type Entry, type PhotoRef } from '../lib';
+import { IOU, money, okDraft, today, UDHAAR, type Category, type Draft, type Entry, type Iou, type PhotoRef } from '../lib';
 
 export function EntryCard({ e, cat, cur, stamp, photo, onClick }: {
   e: Entry; cat: Category; cur: string; stamp?: boolean; photo?: boolean; onClick: () => void;
@@ -13,9 +13,9 @@ export function EntryCard({ e, cat, cur, stamp, photo, onClick }: {
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-lg font-bold leading-tight">
-          {e.quantity > 1 && `${e.quantity}× `}{e.item}{photo && ' 📷'}
+          {e.quantity > 1 && `${e.quantity}× `}{e.item || cat.name}{photo && ' 📷'}
         </span>
-        <span className="block truncate text-xs font-medium">{cat.name}</span>
+        <span className="block truncate text-xs font-medium">{e.iou ? `🤝 ${IOU[e.iou].label} ${e.person}` : cat.name}</span>
       </span>
       <span className="shrink-0 font-display text-2xl">{money(e.amount, cur)}</span>
       {stamp && <span className="stamp">LOGGED!</span>}
@@ -32,7 +32,8 @@ export function EntryFields({ d, cats, cur, onChange }: {
       <div className="flex gap-2">
         <input className="input w-14 shrink-0 px-0 text-center text-2xl" value={d.emoji} aria-label="Emoji"
           onChange={e => onChange({ emoji: [...new Intl.Segmenter().segment(e.target.value.trim())].at(-1)?.segment ?? '' })} />
-        <input className="input min-w-0 flex-1 text-lg font-bold" value={d.item} aria-label="Item" placeholder="What?"
+        <input className="input min-w-0 flex-1 text-lg font-bold" value={d.item} aria-label={d.iou ? 'Reason' : 'Item'}
+          placeholder={d.iou ? 'Reason (optional)' : 'What?'}
           onChange={e => onChange({ item: e.target.value })} />
         <label className={`input flex w-36 shrink-0 items-center gap-1 ${d.amount ? '' : 'bg-tomato/25'}`}>
           <span className="font-display text-xl">{cur}</span>
@@ -42,9 +43,21 @@ export function EntryFields({ d, cats, cur, onChange }: {
         </label>
       </div>
       <select className="input font-bold" value={d.category} aria-label="Category"
-        onChange={e => onChange({ category: e.target.value })}>
-        {cats.map(c => <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>)}
+        onChange={e => onChange(e.target.value === UDHAAR.id
+          ? { category: UDHAAR.id, iou: d.iou ?? 'lent', emoji: IOU[d.iou ?? 'lent'].emoji }
+          : { category: e.target.value, iou: undefined, person: undefined })}>
+        {[...cats, UDHAAR].map(c => <option key={c.id} value={c.id}>{c.emoji} {c.name}{c === UDHAAR ? ' (gave / took)' : ''}</option>)}
       </select>
+      {d.iou && (
+        <div className="flex gap-2">
+          <select className="input min-w-0 flex-1 font-bold" value={d.iou} aria-label="Gave or took"
+            onChange={e => onChange({ iou: e.target.value as Iou, emoji: IOU[e.target.value as Iou].emoji })}>
+            {Object.entries(IOU).map(([k, v]) => <option key={k} value={k}>{v.emoji} {v.label}</option>)}
+          </select>
+          <input className={`input min-w-0 flex-1 font-bold ${d.person?.trim() ? '' : 'bg-tomato/25'}`} value={d.person ?? ''}
+            aria-label="Person" placeholder="Who?" onChange={e => onChange({ person: e.target.value })} />
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-3">
         <input type="date" className="input w-40 font-bold" value={d.date} aria-label="Date"
           onChange={e => onChange({ date: e.target.value || today() })} />
@@ -80,7 +93,7 @@ export function EntrySheet({ entry, cats, cur, onClose }: { entry: Entry; cats: 
     }
   }
   async function remove() {
-    if (!confirm(`Delete "${entry.item}" (${money(entry.amount, cur)})?`)) return;
+    if (!confirm(`Delete "${entry.item || entry.person}" (${money(entry.amount, cur)})?`)) return;
     await deleteEntry(entry.id);
     onClose();
     toast('Deleted 🗑️');
@@ -93,14 +106,14 @@ export function EntrySheet({ entry, cats, cur, onClose }: { entry: Entry; cats: 
         <button className="btn size-12 bg-white px-0" onClick={onClose} aria-label="Close">✕</button>
       </div>
       <EntryFields d={d} cats={cats} cur={cur} onChange={p => setD(d => ({ ...d, ...p }))} />
-      <label className="mt-3 flex min-h-12 items-center gap-2 font-bold">
+      {!d.iou && <label className="mt-3 flex min-h-12 items-center gap-2 font-bold">
         <input type="checkbox" className="size-6 accent-ink" checked={isRepeat(repeats, entry.item)}
           onChange={async () => toast((await toggleRepeat({ ...entry, ...d, amount: d.amount ?? entry.amount })) ? 'Added every month 🔁' : 'Stopped repeating')} />
         🔁 Repeat every month (rent, Netflix…)
-      </label>
+      </label>}
       <div className="mt-4 flex gap-3">
         <button className="btn bg-tomato" onClick={remove}>🗑️ Delete</button>
-        <button className="btn flex-1 bg-lime text-lg" disabled={!ready || !d.item.trim() || !(Number(d.amount) > 0)} onClick={save}>
+        <button className="btn flex-1 bg-lime text-lg" disabled={!ready || !okDraft(d)} onClick={save}>
           Save it
         </button>
       </div>

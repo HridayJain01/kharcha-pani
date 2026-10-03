@@ -3,7 +3,7 @@ import { aiParse, hasAI } from '../ai';
 import { EntryCard, EntryFields, EntrySheet } from '../components/Entry';
 import { db, saveDrafts, useCats, useLive, useToday, type Settings } from '../db';
 import { clink, coinBurst, confetti, toast } from '../fx';
-import { addDays, buildMemory, catOf, localParse, money, period, streak, today, type Draft, type Entry } from '../lib';
+import { addDays, buildMemory, catOf, localParse, money, okDraft, period, pullUdhaar, streak, today, type Draft, type Entry } from '../lib';
 import { cloudVoice, loadOffline, offlineReady, OFFLINE_MB, record, transcribe } from '../voice';
 
 const QUIPS = [
@@ -31,13 +31,13 @@ async function cheerNoSpendYesterday(budget: number) {
   } catch {
     return;
   }
-  if ((await db.entries.where('date').below(y).count()) && !(await db.entries.where('date').equals(y).count())) {
+  if ((await db.entries.where('date').below(y).count()) && !(await db.entries.where('date').equals(y).filter(e => !e.iou).count())) {
     confetti();
     toast('Yesterday was a NO-SPEND DAY! 🎉');
   }
   const w = period('week', 1);
   if (budget && new Date().getDay() === 1 && (await db.entries.where('date').below(w.start).count())) {
-    const spent = (await db.entries.where('date').between(w.start, w.end, true, true).toArray()).reduce((n, e) => n + e.amount, 0);
+    const spent = (await db.entries.where('date').between(w.start, w.end, true, true).filter(e => !e.iou).toArray()).reduce((n, e) => n + e.amount, 0);
     if (spent < (budget * 12) / 52) {
       confetti();
       toast('Last week came in UNDER BUDGET! 🥳');
@@ -79,19 +79,23 @@ export default function Add({ s }: { s: Settings }) {
     if (!input || !cats || busy) return;
     setBusy(true);
     const memory = buildMemory(await db.entries.toArray()); // learns from everything you've saved
+    const { rest, drafts: udhaar } = pullUdhaar(input, cats, memory); // "gave rahul 500" etc., always offline
     let out: Draft[] = [];
     let why = '';
-    if (hasAI(s)) {
+    if (!/[\p{L}\p{N}]/u.test(rest)) {
+      // nothing left but udhaar
+    } else if (hasAI(s)) {
       if (!navigator.onLine) why = "You're offline, so the offline parser read this.";
       else {
         try {
-          out = await aiParse(input, cats, memory);
+          out = await aiParse(rest, cats, memory);
         } catch (err) {
           why = `AI hiccup (${(err as Error).message}), so the offline parser read this.`;
         }
       }
     }
-    if (!out.length) out = localParse(input, cats, memory);
+    if (!out.length) out = localParse(rest, cats, memory);
+    out = [...out, ...udhaar];
     setBusy(false);
     setNote(why && `${why} Double-check it!`);
     setDrafts(out);
@@ -161,9 +165,9 @@ export default function Add({ s }: { s: Settings }) {
     }
   }
 
-  const ready = drafts.length > 0 && drafts.every(d => d.item.trim() && Number(d.amount) > 0);
+  const ready = drafts.length > 0 && drafts.every(okDraft);
   const getting = dl !== null && dl < 100 ? ` (voice model ${dl}%)` : '';
-  const total = todays?.reduce((n, e) => n + e.amount, 0) ?? 0;
+  const total = todays?.reduce((n, e) => (e.iou ? n : n + e.amount), 0) ?? 0;
 
   return (
     <div className="grid gap-5">
@@ -188,7 +192,7 @@ export default function Add({ s }: { s: Settings }) {
         <div className="flex gap-2">
           <textarea id="quick" ref={box} rows={2} enterKeyHint="send" value={text}
             className="input field-sizing-content max-h-48 min-h-20 min-w-0 flex-1 resize-none py-2 text-lg"
-            placeholder="chai 15, 2 autos 80, lunch 120"
+            placeholder="chai 15, 2 autos 80, gave rahul 500"
             onChange={e => setText(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); parse(text); } }} />
           {canRecord && (

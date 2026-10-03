@@ -53,8 +53,9 @@ export function useToday() {
   return t;
 }
 
-const fields = ({ item, quantity, amount, category, date, emoji }: Draft) =>
-  ({ item: item.trim(), quantity, amount: amount ?? 0, category, date, emoji });
+// Undefined person/iou on update deletes them, so switching an entry out of Udhaar cleans up.
+const fields = ({ item, quantity, amount, category, date, emoji, person, iou }: Draft) =>
+  ({ item: item.trim(), quantity, amount: amount ?? 0, category, date, emoji, person: iou ? person?.trim() : undefined, iou });
 
 export const saveDrafts = (drafts: Draft[]) =>
   db.transaction('rw', db.entries, db.photos, async () => {

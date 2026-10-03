@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { PROVIDERS, SHARED, testKey } from '../ai';
 import { db, DEFAULT_SETTINGS, getRepeats, useLive, getSettings, saveSettings, useCats, type Provider, type Settings as S } from '../db';
 import { toast } from '../fx';
-import { catOf, guessCategory, isYmd, money, today, ymd, type Category, type Entry } from '../lib';
+import { catOf, guessCategory, IOU, isYmd, money, today, ymd, type Category, type Entry } from '../lib';
 import { loadOffline, offlineReady, OFFLINE_MB, removeOffline } from '../voice';
 
 const PALETTE = ['#B8F135', '#FFD23F', '#9B5DE5', '#FF5A36', '#3A86FF', '#FF4FA3'];
@@ -101,7 +101,8 @@ export default function Settings({ s }: { s: S }) {
 
   async function exportCsv() {
     const rows = await db.entries.orderBy('date').toArray();
-    const csv = [['date', 'item', 'quantity', 'amount', 'category'], ...rows.map(e => [e.date, e.item, e.quantity, e.amount, catOf(cats!, e.category).name])]
+    const csv = [['date', 'item', 'quantity', 'amount', 'category', 'udhaar', 'person'],
+      ...rows.map(e => [e.date, e.item, e.quantity, e.amount, catOf(cats!, e.category).name, e.iou ? IOU[e.iou].label : '', e.person ?? ''])]
       .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
       .join('\r\n');
     await saveFile(new Blob(['﻿' + csv], { type: 'text/csv' }), `kharcha-pani-${today()}.csv`); // BOM so Excel reads ₹ and emoji
@@ -131,7 +132,8 @@ export default function Settings({ s }: { s: S }) {
       if (data?.app !== 'kharcha-pani' || !Array.isArray(data.entries)) throw new Error("that's not a Kharcha Pani backup");
       const entries: Entry[] = data.entries
         .filter((e: any) => Number.isInteger(e?.id) && typeof e.item === 'string' && Number(e.amount) > 0 && isYmd(e.date) && typeof e.category === 'string')
-        .map((e: any) => ({ id: e.id, item: e.item.slice(0, 60), quantity: Math.max(1, Number(e.quantity) || 1), amount: Number(e.amount), category: e.category, date: e.date, emoji: String(e.emoji ?? ''), createdAt: Number(e.createdAt) || Date.now() }));
+        .map((e: any) => ({ id: e.id, item: e.item.slice(0, 60), quantity: Math.max(1, Number(e.quantity) || 1), amount: Number(e.amount), category: e.category, date: e.date, emoji: String(e.emoji ?? ''), createdAt: Number(e.createdAt) || Date.now(),
+          ...(Object.hasOwn(IOU, e.iou) && typeof e.person === 'string' && e.person.trim() ? { iou: e.iou, person: e.person.trim().slice(0, 40) } : {}) }));
       const categories: Category[] = (Array.isArray(data.categories) ? data.categories : [])
         .filter((c: any) => typeof c?.id === 'string' && typeof c.name === 'string')
         .map((c: any, i: number) => ({ id: c.id, name: c.name, emoji: String(c.emoji ?? '🏷️'), color: /^#[0-9a-f]{6}$/i.test(c.color) ? c.color : PALETTE[i % PALETTE.length], hint: String(c.hint ?? ''), order: Number(c.order) || i }));

@@ -10,6 +10,7 @@ There's no login, no backend and no cost: your data lives only on your device.
 - **Add**: today's total, a quick-add box with a mic, and a preview you can edit before anything is saved
 - **Ledger**: every entry grouped by day, with search, category filters, and edit or delete
 - **Overview**: day, week or month totals, change vs the previous period, a donut and daily bars, top categories, fun stats, a budget meter, and **ROAST ME 🔥**
+- **Udhaar 🤝**: type `gave rahul 500 for books`, `amit se 200 liye`, `rahul paid back 300` or `dinner 1200 split with rahul, neha` in the same box. The reason is optional. Udhaar never counts as spending, and Overview shows **To take** and **To give** for each person, with their full history
 - **Settings**: optional AI key, offline voice model, currency, categories (add, rename, recolour), budget, CSV export, zip backup and restore
 
 ## How it understands you

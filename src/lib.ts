@@ -2,7 +2,8 @@
 // No DOM and no Dexie in here, so `npm test` can run it in plain Node.
 
 export interface Category { id: string; name: string; emoji: string; color: string; hint: string; order: number }
-export interface Entry { id: number; item: string; quantity: number; amount: number; category: string; date: string; emoji: string; createdAt: number }
+// Udhaar entries carry `person` + `iou`, and the item is the (optional) reason. They're never counted as spending.
+export interface Entry { id: number; item: string; quantity: number; amount: number; category: string; date: string; emoji: string; createdAt: number; person?: string; iou?: Iou }
 export interface PhotoRef { id?: number; blob: Blob }
 export type Draft = Omit<Entry, 'id' | 'amount' | 'createdAt'> & { amount: number | null; photos: PhotoRef[] };
 
@@ -33,8 +34,10 @@ const KEYWORDS: Record<string, string> = {
   gifts: 'उपहार, gift, present, donation, charity, birthday gift, wedding gift, shagun, temple, mandir, puja, church, gurudwara, offering, tip',
 };
 
+// Udhaar is a built-in pseudo-category: not in the DB, so it can't be renamed or deleted.
+export const UDHAAR: Category = { id: 'udhaar', name: 'Udhaar', emoji: '🤝', color: '#7DD3FC', hint: '', order: 98 };
 export const catOf = (cats: Category[], id: string) =>
-  cats.find(c => c.id === id) ?? cats.find(c => c.id === 'misc') ?? DEFAULT_CATEGORIES.find(c => c.id === 'misc')!;
+  (id === UDHAAR.id ? UDHAAR : undefined) ?? cats.find(c => c.id === id) ?? cats.find(c => c.id === 'misc') ?? DEFAULT_CATEGORIES.find(c => c.id === 'misc')!;
 
 // Dates are local "YYYY-MM-DD" strings. Never toISOString(): that's UTC and flips the day before 5:30am IST.
 export const ymd = (d: Date) =>
@@ -79,6 +82,7 @@ export function buildMemory(entries: Entry[]): Memory {
   const seen = new Map<string, Map<string, number>>();
   const emoji = new Map<string, string>();
   for (const e of entries) {
+    if (e.iou) continue; // an udhaar reason ("books") shouldn't teach the spending categories
     const k = norm(e.item);
     const counts = seen.get(k) ?? seen.set(k, new Map()).get(k)!;
     counts.set(e.category, (counts.get(e.category) ?? 0) + 1);
@@ -283,6 +287,93 @@ export function localParse(text: string, cats: Category[], memory: Memory = new 
     const amount = price ? Math.round(((price.unit ? price.v * quantity : price.v) / parts) * 100) / 100 : null;
     return { item: parts > 1 ? `${item} (1/${parts})` : item, quantity, amount, category: cat.id, date: s.date ?? everyDate ?? t, emoji: cat.emoji, photos: [] };
   });
+}
+
+// ---------- udhaar: money you gave or took ----------
+
+export type Iou = 'lent' | 'borrowed' | 'got' | 'repaid';
+// sign: +1 = they owe you more, -1 = they owe you less (or you owe them more)
+export const IOU: Record<Iou, { sign: 1 | -1; label: string; emoji: string }> = {
+  lent: { sign: 1, label: 'Gave to', emoji: '🫴' },
+  borrowed: { sign: -1, label: 'Took from', emoji: '🙏' },
+  got: { sign: -1, label: 'Got back from', emoji: '💰' },
+  repaid: { sign: 1, label: 'Paid back to', emoji: '✅' },
+};
+export const okDraft = (d: Draft) => Number(d.amount) > 0 && (d.iou ? !!d.person?.trim() : !!d.item.trim());
+
+const NAME = String.raw`(?<!\p{L})(?!(?:me|i|you|he|she|they|him|her|them|us|back|from|to|for|the|money|cash|loan|udhaa?r|wapas|rs|inr)(?!\p{L}))(?<p>\p{L}+)`;
+// First match wins, so "paid back" rules come before plain "gave"/"took". ponytail: regex cues, one-word names.
+const CUES = ([
+  [String.raw`${NAME}\s+(?:has\s+)?(?:returned|(?:paid|gave|sent)\s+(?:me\s+)?back)\b`, 'got'], // rahul paid back 300
+  [String.raw`\b(?:got|received)\b(?=.*\bback\b).*?\bfrom\s+${NAME}`, 'got'], // got 300 back from rahul
+  [String.raw`${NAME}\s+ne\b.*\b(?:wapas|lauta)`, 'got'], // rahul ne 300 wapas diye
+  [String.raw`\b(?:paid|gave|sent)\s+back\s+(?:to\s+)?${NAME}`, 'repaid'], // paid back amit 200
+  [String.raw`\b(?:paid|gave|sent)\s+${NAME}\s+back\b`, 'repaid'], // paid amit back 200
+  [String.raw`\b(?:paid|gave|sent)\b.*?\bback\s+to\s+${NAME}`, 'repaid'], // paid 200 back to amit
+  [String.raw`\breturned\b.*?\bto\s+${NAME}`, 'repaid'], // returned 200 to amit
+  [String.raw`\breturned\s+${NAME}`, 'repaid'], // returned amit 200
+  [String.raw`${NAME}\s+ko\b.*\b(?:wapas|lauta)`, 'repaid'], // amit ko 200 wapas diye
+  [String.raw`${NAME}\s+(?:gave|lent|sent)\s+me\b`, 'borrowed'], // amit gave me 200
+  [String.raw`\b(?:borrowed|took\s+(?=[\d₹]|rs\b|udhaa?r|money|cash|loan))\b.*?\bfrom\s+${NAME}`, 'borrowed'], // took 200 from amit (not "took a cab from…")
+  [String.raw`${NAME}\s+se\b.*\b(?:liye|liya|li|udhaa?r)`, 'borrowed'], // amit se 200 liye
+  [String.raw`\b(?:gave|lent|lend|loaned)\s+(?:to\s+)?${NAME}`, 'lent'], // gave rahul 500
+  [String.raw`\b(?:gave|lent|loaned)\b.*?\bto\s+${NAME}`, 'lent'], // lent 500 to rahul
+  [String.raw`${NAME}\s+ko\b.*\b(?:diye|diya|di|udhaa?r)`, 'lent'], // rahul ko 500 diye
+] as const).map(([re, iou]) => [new RegExp(re, 'iu'), iou] as const);
+const CUE_WORDS = /(?<!\p{L})(?:i|has|gave|give|given|lent|lend|loaned|took|borrowed|borrow|got|received|paid|pay|sent|returned|return|back|from|to|me|ko|se|ne|diye|diya|di|liye|liya|li|lautaye|lautaya|lauta|wapas|udhaa?r|loan|money|cash|paise|paisa)(?!\p{L})/giu;
+// "dinner 1200 split with rahul, amit": the name list stops before a word that has a price ("…, chai 15").
+const SPLIT_WITH = /\bsplit\s+(?:it\s+)?(?:with|between|among|b\/w)\s+(\p{L}+(?:\s*[,&]?\s*\p{L}+)*)(?!\p{L})(?!\s*\d)/giu;
+const NOT_NAME = new Set(['and', 'aur', 'me', 'myself', 'last', 'day', 'before', ...WEEKDAYS, ...Object.keys(DAYS_BACK)]);
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+const iouDraft = (iou: Iou, person: string, item: string, amount: number | null, date: string): Draft =>
+  ({ item, quantity: 1, amount, category: UDHAAR.id, date, emoji: IOU[iou].emoji, photos: [], person: cap(person), iou });
+
+// Pulls udhaar lines out of the text (always offline, so the AI never has to know about them).
+// `rest` goes to the normal parser. ponytail: a leading "yesterday:" doesn't carry into udhaar lines; say the date in the line.
+export function pullUdhaar(text: string, cats: Category[], memory: Memory = new Map(), t = today()) {
+  const groups: string[][] = [];
+  const marked = text.replace(SPLIT_WITH, (all, list: string) => {
+    const names = (list.match(/\p{L}+/gu) ?? []).filter(w => !NOT_NAME.has(w.toLowerCase()));
+    return names.length ? `splitwith${groups.push(names) - 1}` : all;
+  });
+  const parts = marked.split(/([;\n]|,(?!\d)|(?<!\d),|\.(?!\d))/); // chunks and their separators; "1,250" and "1.5k" stay whole
+  const drafts: Draft[] = [];
+  for (let i = 0; i < parts.length; i += 2) {
+    const chunk = parts[i];
+    const m = chunk.match(/splitwith(\d+)/);
+    if (m) { // your share is spending, everyone else's share is udhaar they owe you
+      const names = groups[+m[1]], n = names.length + 1;
+      const out = localParse(chunk.replace(m[0], ` split ${n} `), cats, memory, t);
+      const mine = out.findLast(d => d.item.endsWith(` (1/${n})`));
+      drafts.push(...out, ...(mine ? names.map(p => iouDraft('lent', p, mine.item.slice(0, -` (1/${n})`.length), mine.amount, mine.date)) : []));
+      parts[i] = '';
+      continue;
+    }
+    for (const [re, iou] of CUES) {
+      const p = chunk.match(re)?.groups?.p;
+      if (!p) continue;
+      const rem = chunk.replace(new RegExp(`(?<!\\p{L})${p}(?!\\p{L})`, 'iu'), ' ').replace(CUE_WORDS, ' ');
+      const [first, ...more] = localParse(rem, cats, memory, t);
+      drafts.push(iouDraft(iou, p, first && first.item !== 'something' ? first.item : '', first?.amount ?? null, first?.date ?? t), ...more);
+      parts[i] = '';
+      break;
+    }
+  }
+  return { rest: drafts.length ? parts.join('') : text, drafts };
+}
+
+// Net per person, all time: > 0 they owe you (to take), < 0 you owe them (to give), 0 settled.
+export function balances(entries: Entry[]) {
+  const by = new Map<string, { name: string; net: number; entries: Entry[] }>();
+  for (const e of entries) {
+    if (!e.iou || !e.person?.trim()) continue;
+    const k = e.person.trim().toLowerCase();
+    const b = by.get(k) ?? by.set(k, { name: e.person.trim(), net: 0, entries: [] }).get(k)!;
+    b.net = Math.round((b.net + IOU[e.iou].sign * e.amount) * 100) / 100;
+    b.entries.push(e);
+  }
+  return [...by.values()].sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
 }
 
 export type Unit = 'day' | 'week' | 'month';

@@ -176,7 +176,7 @@ export default function Add({ s }: { s: Settings }) {
         <p key={quip} className="quip mt-1 font-bold">{QUIPS[quip % QUIPS.length]}</p>
       </header>
 
-      <section className="card bg-sunny p-4 text-center">
+      <section data-tour="today" className="card bg-sunny p-4 text-center">
         <p className="label">Spent today</p>
         <p className="mt-1 font-display text-7xl leading-none break-all">
           {money(total, s.currency)}
@@ -187,7 +187,7 @@ export default function Add({ s }: { s: Settings }) {
         )}
       </section>
 
-      <form onSubmit={e => { e.preventDefault(); parse(text); }} className="card grid gap-3 p-3">
+      <form onSubmit={e => { e.preventDefault(); parse(text); }} data-tour="quick" className="card grid gap-3 p-3">
         <label htmlFor="quick" className="font-display text-2xl">What did you spend on?</label>
         <div className="flex gap-2">
           <textarea id="quick" ref={box} rows={2} enterKeyHint="send" value={text}

@@ -5,6 +5,7 @@ import Add from './screens/Add';
 import Ledger from './screens/Ledger';
 import Onboarding from './screens/Onboarding';
 import Settings from './screens/Settings';
+import Tour from './components/Tour';
 
 const Overview = lazy(() => import('./screens/Overview')); // keeps Recharts out of the first load
 
@@ -23,6 +24,7 @@ export default function App() {
   useEffect(() => { setSeen(v => v.has(tab) ? v : new Set(v).add(tab)); }, [tab]);
   useEffect(() => { window.scrollTo(0, 0); }, [tab]);
   useEffect(() => { addDueRepeats().then(n => n && toast(`Added ${n} monthly repeat${n > 1 ? 's' : ''} 🔁`)); }, []);
+  useEffect(() => { if (s?.toured === false) setTab('add'); }, [s?.toured]); // replaying the tour from Settings starts on Add
   if (!s) return null;
   if (!s.onboarded) return <Onboarding />;
 
@@ -43,7 +45,7 @@ export default function App() {
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t-3 border-ink bg-paper pb-[env(safe-area-inset-bottom)]">
         <div className="mx-auto grid max-w-md grid-cols-4 gap-2 p-2">
           {TABS.map(([id, icon, label]) => (
-            <button key={id} onClick={() => setTab(id)} aria-current={tab === id ? 'page' : undefined}
+            <button key={id} data-tour={`tab-${id}`} onClick={() => setTab(id)} aria-current={tab === id ? 'page' : undefined}
               className={`flex min-h-14 flex-col items-center justify-center rounded-xl border-3 text-xs font-bold ${tab === id ? 'border-ink bg-sunny shadow-brut-sm' : 'border-transparent'}`}>
               <span className="text-2xl leading-none" aria-hidden>{icon}</span>
               {label}
@@ -51,6 +53,7 @@ export default function App() {
           ))}
         </div>
       </nav>
+      {!s.toured && tab === 'add' && <Tour />}
     </>
   );
 }

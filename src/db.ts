@@ -4,9 +4,9 @@ import { DEFAULT_CATEGORIES, norm, today, ymd, type Category, type Draft, type E
 
 export interface Photo { id: number; entryId: number; blob: Blob }
 export type Provider = 'groq' | 'gemini' | 'custom';
-export interface Settings { provider: Provider; apiKey: string; model: string; baseUrl: string; currency: string; budget: number; goal: string; goalAmount: number; onboarded: boolean }
+export interface Settings { provider: Provider; apiKey: string; model: string; baseUrl: string; currency: string; budget: number; goal: string; goalAmount: number; onboarded: boolean; toured: boolean }
 export const DEFAULT_MODELS: Record<Provider, string> = { groq: 'openai/gpt-oss-20b', gemini: 'gemini-3.5-flash-lite', custom: '' };
-export const DEFAULT_SETTINGS: Settings = { provider: 'groq', apiKey: '', model: DEFAULT_MODELS.groq, baseUrl: '', currency: '₹', budget: 0, goal: '', goalAmount: 0, onboarded: false };
+export const DEFAULT_SETTINGS: Settings = { provider: 'groq', apiKey: '', model: DEFAULT_MODELS.groq, baseUrl: '', currency: '₹', budget: 0, goal: '', goalAmount: 0, onboarded: false, toured: false };
 
 // Everything lives in this one on-device IndexedDB. `kv` holds settings and cached roasts.
 export const db = new Dexie('kharcha-pani') as Dexie & {

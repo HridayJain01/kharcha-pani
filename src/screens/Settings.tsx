@@ -314,6 +314,8 @@ export default function Settings({ s }: { s: S }) {
         </p>
       </Section>
 
+      <button className="btn bg-white" onClick={() => saveSettings({ toured: false })}>👀 Show me around again</button>
+
       <p className="pb-2 text-center text-sm font-bold">Kharcha Pani · made with chai ☕</p>
     </div>
   );

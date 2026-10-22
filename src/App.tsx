@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { addDueRepeats, useSettings } from './db';
+import { addDueRepeats, scheduleReminder, useSettings } from './db';
 import { toast } from './fx';
 import Add from './screens/Add';
 import Ledger from './screens/Ledger';
@@ -25,6 +25,7 @@ export default function App() {
   useEffect(() => { window.scrollTo(0, 0); }, [tab]);
   useEffect(() => { addDueRepeats().then(n => n && toast(`Added ${n} monthly repeat${n > 1 ? 's' : ''} 🔁`)); }, []);
   useEffect(() => { if (s?.toured === false) setTab('add'); }, [s?.toured]); // replaying the tour from Settings starts on Add
+  useEffect(() => scheduleReminder(s?.remindAt ?? ''), [s?.remindAt]);
   if (!s) return null;
   if (!s.onboarded) return <Onboarding />;
 

@@ -7,6 +7,7 @@ export default function Onboarding() {
   const [key, setKey] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [name, setName] = useState('');
   const p = PROVIDERS[provider];
 
   async function go(e: FormEvent) {
@@ -16,7 +17,7 @@ export default function Onboarding() {
     const s = { ...DEFAULT_SETTINGS, provider, apiKey: key.trim(), model: p.model };
     try {
       await testKey(s);
-      await saveSettings({ provider, apiKey: s.apiKey, model: s.model, onboarded: true });
+      await saveSettings({ provider, apiKey: s.apiKey, model: s.model, name: name.trim(), onboarded: true });
     } catch (e) {
       setErr((e as Error).message);
       setBusy(false);
@@ -29,7 +30,9 @@ export default function Onboarding() {
       <p className="text-center text-lg font-bold">
         Log spends the lazy way.<br />“chai 15, 2 autos 80” → done. 💸
       </p>
-      <button className="btn min-h-16 bg-lime text-lg" onClick={() => saveSettings({ onboarded: true })}>
+      <input className="input text-center font-bold" maxLength={30} placeholder="What should we call you?" aria-label="Your name"
+        value={name} onChange={e => setName(e.target.value)} />
+      <button className="btn min-h-16 bg-lime text-lg" onClick={() => saveSettings({ name: name.trim(), onboarded: true })}>
         Start logging 🚀
       </button>
       {/* with the shared key built in there's nothing to set up, so no key card */}

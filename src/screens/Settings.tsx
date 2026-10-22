@@ -159,6 +159,7 @@ export default function Settings({ s }: { s: S }) {
           ...(typeof st.currency === 'string' && st.currency ? { currency: st.currency.slice(0, 4) } : {}),
           ...(Number(st.budget) >= 0 ? { budget: Number(st.budget) } : {}),
           ...(typeof st.model === 'string' && st.model ? { model: st.model } : {}),
+          ...(typeof st.name === 'string' ? { name: st.name.slice(0, 30) } : {}),
         });
       });
       toast('Restored ♻️');
@@ -239,6 +240,14 @@ export default function Settings({ s }: { s: S }) {
         )}
       </Section>
 
+      <Section title="🙋 You">
+        <label className="grid gap-1">
+          <span className="label">Your name</span>
+          <input className="input font-bold" maxLength={30} placeholder="Hriday" defaultValue={s.name}
+            onChange={e => saveSettings({ name: e.target.value.trim() })} />
+        </label>
+      </Section>
+
       <Section title="💰 Money">
         <div className="flex items-end gap-3">
           <label className="grid w-24 gap-1">
@@ -265,6 +274,19 @@ export default function Settings({ s }: { s: S }) {
           </label>
         </div>
         <p className="text-sm font-bold">Whatever you don't spend of your budget each month drops into the jar (Overview).</p>
+      </Section>
+
+      <Section title="🔔 Reminder">
+        <label className="flex items-center justify-between gap-3">
+          <span className="font-bold">Nudge me if I haven't logged by</span>
+          <input className="input w-32 font-display text-xl" type="time" defaultValue={s.remindAt}
+            onChange={async e => {
+              const at = e.target.value;
+              if (at && (await Notification.requestPermission()) !== 'granted') return toast('Allow notifications to get reminders');
+              saveSettings({ remindAt: at });
+            }} />
+        </label>
+        <p className="text-sm font-bold">Clear the time to turn it off. On iPhone, add the app to your Home Screen first.</p>
       </Section>
 
       <Section title="🔁 Recurring costs">

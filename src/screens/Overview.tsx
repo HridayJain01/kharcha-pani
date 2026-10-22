@@ -141,7 +141,7 @@ export default function Overview({ s }: { s: Settings }) {
 
   return (
     <div className="grid gap-4">
-      <h1 className="font-display text-4xl">Overview 📊</h1>
+      <h1 className="font-display text-4xl">{s.name ? `Hi ${s.name} 👋` : 'Overview 📊'}</h1>
       <div className="grid grid-cols-3 gap-2" role="group" aria-label="Period">
         {UNITS.map(([u, label]) => (
           <button key={u} aria-pressed={unit === u} className={`btn ${unit === u ? 'bg-grape' : 'bg-white'}`}

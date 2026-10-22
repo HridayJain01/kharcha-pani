@@ -89,7 +89,7 @@ const firstGrapheme = (s: unknown) =>
 export async function aiParse(input: string, cats: Category[], memory: Memory): Promise<Draft[]> {
   const s = await getSettings();
   const t = today();
-  const system = `You turn casual spending notes into expense entries. Today's date is ${t} (${new Date().toLocaleDateString('en-IN', { weekday: 'long' })}). Currency is ${s.currency === '₹' ? 'rupees' : s.currency}. Allowed categories: ${cats.map(c => `${c.id} (${c.name}${c.hint ? `: ${c.hint}` : ''})`).join('; ')}.
+  const system = `You turn casual spending notes into expense entries. Today's date is ${t} (${new Date().toLocaleDateString('en-IN', { weekday: 'long' })}). Currency is ${s.currency === '₹' ? 'rupees' : s.currency}. ${s.name ? `The user's name is ${s.name}; 'I', 'me' and '${s.name}' all mean the user. ` : ''}Allowed categories: ${cats.map(c => `${c.id} (${c.name}${c.hint ? `: ${c.hint}` : ''})`).join('; ')}.
 Rules:
 - One entry per thing bought. Keep item names short (e.g. 'chai', 'auto', 'zomato order').
 - amount is the TOTAL paid for that line. '2 autos 40 each' = 80. '2 autos 40' = 40 (treat the number as the total unless it says 'each' or 'per').
@@ -148,6 +148,7 @@ Return JSON only.`;
 const FRIEND = `You're the user's sarcastic best friend from Mumbai, texting them. Hinglish, lowercase is fine, short sentences.
 Be specific: name the actual items, amounts and days from the data, never generic lines like "your wallet is crying".
 No "Ah,", "Well, well", "Let's", "It seems", no em dashes, no hashtags, no more than one emoji. Tease, never insult.`;
+const friend = async () => { const n = (await getSettings()).name; return n ? `${FRIEND}\nTheir name is ${n}; use it now and then.` : FRIEND; };
 const TEXT = (...keys: string[]): Schema =>
   ({ type: 'object', properties: Object.fromEntries(keys.map(k => [k, { type: 'string' }])), required: keys, additionalProperties: false });
 const clip = (r: Record<string, unknown>, k: string, n = 400) => String(r?.[k] ?? '').slice(0, n);
@@ -156,21 +157,21 @@ const clip = (r: Record<string, unknown>, k: string, n = 400) => String(r?.[k] ?
 export async function roast(periodWord: string, summary: object) {
   const r = await ask(await getSettings(),
     `My ${periodWord} spending: ${JSON.stringify(summary)}. Roast me in 2-3 lines like you'd text a friend, then one blunt tip that uses my actual numbers. JSON { roast, tip }.`,
-    TEXT('roast', 'tip'), FRIEND);
+    TEXT('roast', 'tip'), await friend());
   return { roast: clip(r, 'roast', 600), tip: clip(r, 'tip', 300) };
 }
 
 export async function shouldBuy(thing: string, context: object) {
   const r = await ask(await getSettings(),
     `Should I buy this: "${thing}"? My month so far: ${JSON.stringify(context)}. verdict is exactly "BUY IT", "SKIP IT" or "SLEEP ON IT"; why is one or two judgy lines. JSON { verdict, why }.`,
-    TEXT('verdict', 'why'), FRIEND);
+    TEXT('verdict', 'why'), await friend());
   return { verdict: clip(r, 'verdict', 20), why: clip(r, 'why') };
 }
 
 export async function horoscope(summary: object) {
   const r = await ask(await getSettings(),
     `Write my money horoscope for this week, like a fake astrologer who has seen my spending: ${JSON.stringify(summary)}. 2 lines, planets meddling with my actual habits ("Mercury is in Zomato"). JSON { text }.`,
-    TEXT('text'), FRIEND);
+    TEXT('text'), await friend());
   return clip(r, 'text');
 }
 

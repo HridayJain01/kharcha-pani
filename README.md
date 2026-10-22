@@ -69,6 +69,21 @@ Good to know:
 - **Privacy.** Everyone's notes and voice clips pass through your function and your Groq account.
 - **Local testing:** `npm run dev` doesn't run `api/`. Use `npx vercel dev` with the same variables in a `.env.local` file.
 
+## Reminders when the app is closed (optional)
+
+Without this, the nightly reminder (Settings → 🔔 Reminder) only fires while the app is open or in the background. With it, your server pushes the reminder to a closed app (`api/push.ts`). It skips anyone who already logged something that day.
+
+1. Run `npx web-push generate-vapid-keys`.
+2. In Vercel, open **Storage → Upstash (Redis)**, create a free database and connect it to the project. This sets `KV_REST_API_URL` and `KV_REST_API_TOKEN`.
+3. In **Settings → Environment Variables**, add:
+   - `VAPID_PUBLIC_KEY` and `VITE_VAPID_PUBLIC_KEY` = the public key (the same value for both)
+   - `VAPID_PRIVATE_KEY` = the private key
+   - `CRON_SECRET` = any long random string
+4. Redeploy.
+5. Vercel's free plan only runs crons once a day, so use https://cron-job.org (free). Make a job that calls `GET https://<your-app>/api/push` every 15 minutes, with the header `Authorization: Bearer <CRON_SECRET>`.
+
+Reminders arrive within one cron interval after the chosen time. On iPhone they need iOS 16.4 or newer, and the app has to be added to the Home Screen.
+
 ## 2. Run it locally
 
 You need Node.js 22.18 or newer (`npm test` runs TypeScript directly in Node).

@@ -4,9 +4,9 @@ import { DEFAULT_CATEGORIES, norm, today, ymd, type Category, type Draft, type E
 
 export interface Photo { id: number; entryId: number; blob: Blob }
 export type Provider = 'groq' | 'gemini' | 'custom';
-export interface Settings { provider: Provider; apiKey: string; model: string; baseUrl: string; currency: string; budget: number; goal: string; goalAmount: number; onboarded: boolean; toured: boolean }
+export interface Settings { provider: Provider; apiKey: string; model: string; baseUrl: string; currency: string; budget: number; goal: string; goalAmount: number; name: string; onboarded: boolean; toured: boolean; remindAt: string }
 export const DEFAULT_MODELS: Record<Provider, string> = { groq: 'openai/gpt-oss-20b', gemini: 'gemini-3.5-flash-lite', custom: '' };
-export const DEFAULT_SETTINGS: Settings = { provider: 'groq', apiKey: '', model: DEFAULT_MODELS.groq, baseUrl: '', currency: '₹', budget: 0, goal: '', goalAmount: 0, onboarded: false, toured: false };
+export const DEFAULT_SETTINGS: Settings = { provider: 'groq', apiKey: '', model: DEFAULT_MODELS.groq, baseUrl: '', currency: '₹', budget: 0, goal: '', goalAmount: 0, name: '', onboarded: false, toured: false, remindAt: '' };
 
 // Everything lives in this one on-device IndexedDB. `kv` holds settings and cached roasts.
 export const db = new Dexie('kharcha-pani') as Dexie & {
@@ -114,3 +114,40 @@ export const addDueRepeats = () =>
     if (added) await db.kv.put({ key: 'repeats', value: rs });
     return added;
   });
+
+// Nightly nudge at "HH:MM" if nothing was logged today. Returns a cancel fn.
+// With VITE_VAPID_PUBLIC_KEY set, the server (api/push.ts) sends it even when the app is closed.
+// Without it, a timer that only fires while the app is open or backgrounded.
+const VAPID = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined;
+const postPush = (body: object) =>
+  fetch('/api/push', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).catch(console.error);
+
+export function scheduleReminder(at: string) {
+  if (VAPID && 'PushManager' in window) {
+    navigator.serviceWorker.ready.then(async reg => {
+      const sub = await reg.pushManager.getSubscription();
+      if (!at || Notification.permission !== 'granted') return sub && postPush({ endpoint: sub.endpoint, at: '' });
+      postPush({ sub: sub ?? await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: VAPID }), at, tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
+    }).catch(console.error);
+    return () => {};
+  }
+  if (!at || Notification.permission !== 'granted') return () => {};
+  const [h, m] = at.split(':').map(Number);
+  const next = new Date();
+  next.setHours(h, m, 0, 0);
+  if (next <= new Date()) next.setDate(next.getDate() + 1);
+  let cancel = () => {};
+  const timer = setTimeout(async () => {
+    if (!(await db.entries.where('date').equals(today()).count()))
+      (await navigator.serviceWorker.ready).showNotification('Kharcha Pani 🪙', { body: `${(await getSettings()).name || 'Oye'}, log today's kharcha before you forget!`, icon: '/pwa-192.png', tag: 'remind' });
+    cancel = scheduleReminder(at);
+  }, next.getTime() - Date.now());
+  return () => { clearTimeout(timer); cancel(); };
+}
+
+// Logging something today tells the server to skip tonight's push. Once per day per device.
+db.entries.hook('creating', (_, e) => {
+  if (!VAPID || e.date !== today() || localStorage.getItem('pushLogged') === e.date) return;
+  localStorage.setItem('pushLogged', e.date);
+  navigator.serviceWorker?.ready.then(r => r.pushManager.getSubscription()).then(sub => sub && postPush({ endpoint: sub.endpoint, logged: e.date }));
+});

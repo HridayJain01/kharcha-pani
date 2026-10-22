@@ -35,6 +35,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png}'],
+        importScripts: ['push-sw.js'],
         // The offline-voice worker (~540 kB) is cached on first use instead of at install.
         // Its model and runtime cache themselves (transformers.js uses Cache Storage).
         globIgnores: ['**/asr.worker-*.js'],

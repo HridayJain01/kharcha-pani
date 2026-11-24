@@ -3,7 +3,7 @@ import { EntryCard, EntrySheet, who } from '../components/Entry';
 import { db, saveDrafts, saveSettings, useCats, useLive, type Settings } from '../db';
 import { confetti, toast } from '../fx';
 import { catOf, IOU, ME, money, norm, settleUp, today, tripNet, UDHAAR, type Entry, type Trip } from '../lib';
-import { joinTrip, peekTrip, startSharing, syncQuiet, syncTrip, tripLink } from '../share';
+import { joinTrip, linkCode, peekTrip, startSharing, syncQuiet, syncTrip, tripLink } from '../share';
 
 const EMOJIS = ['🏖️', '⛰️', '🏕️', '✈️', '🚗', '🎉', '🏠', '🍻'];
 const names = (s: string) => [...new Map(s.split(/[,\n]/).map(n => n.trim()).filter(n => n && norm(n) !== ME).map(n => [norm(n), n])).values()];
@@ -21,7 +21,7 @@ export default function Trips({ s }: { s: Settings }) {
   const trips = useLive(() => db.trips.reverse().toArray());
   const [open, setOpen] = useState<number>();
   const [adding, setAdding] = useState(false);
-  const [joining, setJoining] = useState(() => new URLSearchParams(location.search).get('trip') ?? '');
+  const [joining, setJoining] = useState(linkCode);
   if (!trips) return null;
   if (joining) return <JoinTrip code={joining} s={s} onDone={id => { history.replaceState(null, '', location.pathname); setJoining(''); setOpen(id); }} />;
   const trip = trips.find(t => t.id === open);

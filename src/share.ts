@@ -6,9 +6,11 @@ import { ME, myShare, norm, today, type Entry, type Trip } from './lib';
 interface Meta { name: string; emoji: string; members: string[] }
 type Wire = { uid: string; at: number; del?: 1; kind?: 'e' | 's' } & Record<string, any>;
 
-const ABC = 'abcdefghijklmnopqrstuvwxyz0123456789';
-const newCode = () => [...crypto.getRandomValues(new Uint8Array(12))].map(b => ABC[b % 36]).join('');
-export const tripLink = (t: Trip) => `${location.origin}/?trip=${t.code}`;
+// 128 random bits, base64url (22 chars). The link is the trip's only password, so it lives in the #fragment,
+// which browsers never send to the server (or its logs).
+const newCode = () => btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16)))).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+export const tripLink = (t: Trip) => `${location.origin}/#trip=${t.code}`;
+export const linkCode = () => new URLSearchParams(location.hash.slice(1)).get('trip') ?? new URLSearchParams(location.search).get('trip') ?? '';
 
 async function call(code: string, meta: Meta | undefined, items: Wire[]): Promise<{ meta: Meta; items: Wire[] }> {
   const res = await fetch('/api/trip', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, meta, items }) });

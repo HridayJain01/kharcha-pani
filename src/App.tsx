@@ -7,7 +7,7 @@ import Onboarding from './screens/Onboarding';
 import Settings from './screens/Settings';
 import Trips from './screens/Trips';
 import Tour from './components/Tour';
-import { syncQuiet } from './share';
+import { linkCode, syncQuiet } from './share';
 
 const Overview = lazy(() => import('./screens/Overview')); // keeps Recharts out of the first load
 
@@ -22,7 +22,7 @@ type Tab = (typeof TABS)[number][0];
 
 export default function App() {
   const s = useSettings();
-  const [tab, setTab] = useState<Tab>(() => (new URLSearchParams(location.search).has('trip') ? 'trips' : 'add')); // a trip invite link
+  const [tab, setTab] = useState<Tab>(() => (linkCode() ? 'trips' : 'add')); // a trip invite link
   const [seen, setSeen] = useState(new Set<Tab>(['add'])); // screens stay mounted once visited, so forms survive tab switches
   useEffect(() => { setSeen(v => v.has(tab) ? v : new Set(v).add(tab)); }, [tab]);
   useEffect(() => { window.scrollTo(0, 0); }, [tab]);

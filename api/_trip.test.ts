@@ -22,6 +22,7 @@ const bill = (uid: string, at: number, item = 'dinner') =>
 
 check((await post({ code, items: [] }, 'https://evil.example')).status === 403, 'other sites refused');
 check((await post({ code: 'nope', items: [] })).status === 400, 'bad code refused');
+check((await post({ code: 'Ab3_-xYz0123456789abcd', items: [] })).status === 404, '128-bit codes accepted');
 check((await post({ code, items: [] })).status === 404, 'unknown trip without meta is 404');
 await post({ code, meta: { name: 'Goa', emoji: '🏖️', members: ['Hriday', 'Rahul'] }, items: [bill('uid-aaaa-1', 10)] });
 let r = await post({ code, meta: { name: 'x', emoji: '🏖️', members: ['rahul', 'Amit'] }, items: [bill('uid-aaaa-1', 5, 'stale'), bill('uid-bbbb-2', 20), { uid: 'evil', at: 1, item: 'x' }] });

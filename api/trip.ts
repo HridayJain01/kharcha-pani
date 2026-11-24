@@ -50,7 +50,8 @@ export async function POST(req: Request) {
   const text = await req.text();
   if (text.length > 2_000_000) return fail('too big', 413);
   const body = JSON.parse(text);
-  if (typeof body.code !== 'string' || !/^[a-z0-9]{12}$/.test(body.code)) return fail('bad trip code', 400);
+  // 22 chars = 128 random bits; the 12-char form is from the first release
+  if (typeof body.code !== 'string' || !/^(?:[A-Za-z0-9_-]{22}|[a-z0-9]{12})$/.test(body.code)) return fail('bad trip code', 400);
   const key = `trip:${body.code}`;
 
   const flat: string[] = (await redis('HGETALL', key)) ?? [];

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { db, deleteEntry, getRepeats, isRepeat, toggleRepeat, updateEntry, useLive } from '../db';
 import { toast } from '../fx';
-import { IOU, ME, money, myShare, okDraft, today, UDHAAR, type Category, type Draft, type Entry, type Iou, type PhotoRef } from '../lib';
+import { syncQuiet } from '../share';
+import { IOU, ME, money, myShare, okDraft, owed, splitError, today, UDHAAR, type Category, type Draft, type Entry, type Iou, type PhotoRef } from '../lib';
 
 export function EntryCard({ e, cat, cur, stamp, photo, onClick }: {
   e: Entry; cat: Category; cur: string; stamp?: boolean; photo?: boolean; onClick: () => void;
@@ -27,18 +28,38 @@ export function EntryCard({ e, cat, cur, stamp, photo, onClick }: {
 
 export const who = (p: string) => (p === ME ? 'You' : p);
 
-// Trip drafts: who paid the bill and who it's split between (equally).
+const MODES = [['equal', '='], ['exact', '₹'], ['percent', '%'], ['shares', 'Ratio']] as const;
+
+// Trip drafts: who paid the bill, and who shares it: equally, by exact amounts, percentages or ratios (2:1).
 function TripSplit({ d, cur, onChange }: { d: Draft; cur: string; onChange: (patch: Partial<Draft>) => void }) {
   const trip = useLive(() => db.trips.get(d.trip!), [d.trip]);
   if (!trip) return null;
   const people = [ME, ...trip.members];
   const split = d.split ?? [];
-  const each = split.length ? Math.round(((d.amount ?? 0) / split.length) * 100) / 100 : 0;
+  const mode = d.splitBy && d.shares ? d.splitBy : 'equal';
+  const total = d.amount ?? 0;
+  const each = owed(total, split, d.splitBy && d.shares);
+  const err = splitError(d);
+
+  // Switching modes starts from an even split of the people already in it.
+  function pick(m: (typeof MODES)[number][0]) {
+    if (m === 'equal') return onChange({ splitBy: undefined, shares: undefined });
+    const on = split.length ? split : people;
+    const even = m === 'exact' ? total / on.length : m === 'percent' ? 100 / on.length : 1;
+    const shares = Object.fromEntries(on.map(p => [p, Math.floor(even * 100) / 100]));
+    shares[on[0]] = Math.round((shares[on[0]] + (m === 'shares' ? 0 : (m === 'exact' ? total : 100) - (Math.floor(even * 100) / 100) * on.length)) * 100) / 100;
+    onChange({ splitBy: m, shares, split: on });
+  }
+  const setShare = (p: string, v: number) => {
+    const shares = { ...d.shares, [p]: v };
+    onChange({ shares, split: people.filter(x => (shares[x] ?? 0) > 0) });
+  };
+
   return (
     <div className="grid gap-2 rounded-lg border-3 border-dashed border-ink bg-sky/15 p-2">
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate font-bold">{trip.emoji} {trip.name}</span>
-        <button type="button" className="text-sm font-bold underline min-h-10" onClick={() => onChange({ trip: undefined, split: undefined, paidBy: undefined })}>Not a trip spend</button>
+        <button type="button" className="min-h-10 text-sm font-bold underline" onClick={() => onChange({ trip: undefined, split: undefined, paidBy: undefined, shares: undefined, splitBy: undefined })}>Not a trip spend</button>
       </div>
       <label className="flex items-center gap-2 font-bold">
         Paid by
@@ -46,19 +67,39 @@ function TripSplit({ d, cur, onChange }: { d: Draft; cur: string; onChange: (pat
           {people.map(p => <option key={p} value={p}>{who(p)}</option>)}
         </select>
       </label>
-      <div className="flex flex-wrap gap-2" role="group" aria-label="Split between">
-        {people.map(p => {
-          const on = split.includes(p);
-          return (
-            <button key={p} type="button" aria-pressed={on} onClick={() => onChange({ split: on ? split.filter(x => x !== p) : [...split, p] })}
-              className={`btn min-h-10 px-3 text-sm normal-case ${on ? 'bg-lime' : 'bg-white opacity-60'}`}>
-              {on ? '✓ ' : ''}{who(p)}
-            </button>
-          );
-        })}
+      <div className="grid grid-cols-4 gap-1" role="group" aria-label="How to split">
+        {MODES.map(([m, label]) => (
+          <button key={m} type="button" aria-pressed={mode === m} onClick={() => pick(m)}
+            className={`btn min-h-10 px-1 text-sm normal-case ${mode === m ? 'bg-sunny' : 'bg-white'}`}>{label}</button>
+        ))}
       </div>
-      <p className="text-sm font-bold">
-        {split.length ? `${money(each, cur)} each · your share ${money(myShare(d.amount ?? 0, split), cur)}` : 'Pick who shares this 👆'}
+      {mode === 'equal' ? (
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Split between">
+          {people.map(p => {
+            const on = split.includes(p);
+            return (
+              <button key={p} type="button" aria-pressed={on} onClick={() => onChange({ split: on ? split.filter(x => x !== p) : [...split, p] })}
+                className={`btn min-h-10 px-3 text-sm normal-case ${on ? 'bg-lime' : 'bg-white opacity-60'}`}>
+                {on ? '✓ ' : ''}{who(p)}
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="grid gap-1">
+          {people.map(p => (
+            <label key={p} className="flex items-center gap-2 font-bold">
+              <span className="min-w-0 flex-1 truncate">{who(p)}</span>
+              {mode !== 'exact' && <span className="text-sm">{money(Math.round((each[p] ?? 0) * 100) / 100, cur)}</span>}
+              <input type="number" inputMode="decimal" min="0" step="any" className="input w-24 text-right" aria-label={`${who(p)}'s ${mode === 'exact' ? 'amount' : mode === 'percent' ? 'percent' : 'ratio'}`}
+                value={d.shares?.[p] || ''} placeholder="0" onChange={e => setShare(p, Math.max(0, Number(e.target.value) || 0))} />
+              <span className="w-4 text-sm">{mode === 'exact' ? cur : mode === 'percent' ? '%' : '×'}</span>
+            </label>
+          ))}
+        </div>
+      )}
+      <p className={`text-sm font-bold ${err ? 'text-tomato' : ''}`}>
+        {err ? `${err} 👆` : mode === 'equal' ? `${money(Math.round((total / split.length) * 100) / 100, cur)} each · your share ${money(myShare(total, split), cur)}` : `Your share ${money(myShare(total, split, d.shares), cur)}`}
       </p>
     </div>
   );
@@ -127,6 +168,7 @@ export function EntrySheet({ entry, cats, cur, onClose }: { entry: Entry; cats: 
     setReady(false); // disables the button, so a double tap can't add the new photos twice
     try {
       await updateEntry(entry.id, d);
+      syncQuiet(entry.trip);
       onClose();
       toast('Updated ✏️');
     } catch (e) {
@@ -137,6 +179,7 @@ export function EntrySheet({ entry, cats, cur, onClose }: { entry: Entry; cats: 
   async function remove() {
     if (!confirm(`Delete "${entry.item || entry.person}" (${money(entry.amount, cur)})?`)) return;
     await deleteEntry(entry.id);
+    syncQuiet(entry.trip);
     onClose();
     toast('Deleted 🗑️');
   }

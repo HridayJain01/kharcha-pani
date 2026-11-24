@@ -57,13 +57,23 @@ export function useToday() {
 
 // Undefined fields on update delete them, so switching an entry out of Udhaar or a trip cleans up.
 // A trip draft's amount is the whole bill: it's saved as `total`, and `amount` becomes your share.
-const fields = ({ item, quantity, amount, category, date, emoji, person, iou, trip, split, paidBy }: Draft) => {
+// Trip entries get a `uid` and an edit time `at`, so a shared trip can sync them between phones.
+const fields = ({ item, quantity, amount, category, date, emoji, person, iou, trip, split, paidBy, shares, splitBy, uid }: Draft) => {
   const t = trip && !iou && split?.length;
+  const w = t && splitBy && shares ? { shares: Object.fromEntries(split.map(p => [p, shares[p] ?? 0])), splitBy } : { shares: undefined, splitBy: undefined };
   return {
-    item: item.trim(), quantity, amount: t ? myShare(amount ?? 0, split) : amount ?? 0, category, date, emoji, person: iou ? person?.trim() : undefined, iou,
-    trip: t ? trip : undefined, total: t ? amount ?? 0 : undefined, split: t ? split : undefined, paidBy: t ? paidBy ?? ME : undefined,
+    item: item.trim(), quantity, amount: t ? myShare(amount ?? 0, split, w.shares) : amount ?? 0, category, date, emoji, person: iou ? person?.trim() : undefined, iou,
+    trip: t ? trip : undefined, total: t ? amount ?? 0 : undefined, split: t ? split : undefined, paidBy: t ? paidBy ?? ME : undefined, ...w,
+    uid: t ? uid ?? crypto.randomUUID() : undefined, at: t ? Date.now() : undefined,
   };
 };
+
+// A bill that leaves a shared trip (deleted, or moved out) leaves a tombstone, so it disappears on everyone's phone.
+async function bury(e: Entry | undefined, stillIn?: number) {
+  if (!e?.trip || !e.uid || e.trip === stillIn) return;
+  const t = await db.trips.get(e.trip);
+  if (t?.code) await db.trips.update(t.id, { dead: [...(t.dead ?? []), { uid: e.uid, at: Date.now() }] });
+}
 
 export const saveDrafts = (drafts: Draft[]) =>
   db.transaction('rw', db.entries, db.photos, async () => {
@@ -78,7 +88,8 @@ export const saveDrafts = (drafts: Draft[]) =>
 
 // Photos the draft still references (by id) stay put; only removed ones are deleted and new ones added.
 export const updateEntry = (id: number, d: Draft) =>
-  db.transaction('rw', db.entries, db.photos, async () => {
+  db.transaction('rw', db.entries, db.photos, db.trips, async () => {
+    await bury(await db.entries.get(id), d.iou ? undefined : d.trip);
     const keep = new Set(d.photos.map(p => p.id));
     await db.entries.update(id, fields(d));
     await db.photos.where('entryId').equals(id).filter(p => !keep.has(p.id)).delete();
@@ -86,8 +97,10 @@ export const updateEntry = (id: number, d: Draft) =>
   });
 
 export const deleteEntry = (id: number) =>
-  db.transaction('rw', db.entries, db.photos, () =>
-    Promise.all([db.entries.delete(id), db.photos.where('entryId').equals(id).delete()]));
+  db.transaction('rw', db.entries, db.photos, db.trips, async () => {
+    await bury(await db.entries.get(id));
+    await Promise.all([db.entries.delete(id), db.photos.where('entryId').equals(id).delete()]);
+  });
 
 // Monthly repeats (rent, Netflix…), matched by item name. `last` = the latest "YYYY-MM" already added.
 export interface Repeat { item: string; amount: number; category: string; emoji: string; day: number; last: string }

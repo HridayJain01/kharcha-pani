@@ -7,6 +7,7 @@ import Onboarding from './screens/Onboarding';
 import Settings from './screens/Settings';
 import Trips from './screens/Trips';
 import Tour from './components/Tour';
+import { syncQuiet } from './share';
 
 const Overview = lazy(() => import('./screens/Overview')); // keeps Recharts out of the first load
 
@@ -21,13 +22,19 @@ type Tab = (typeof TABS)[number][0];
 
 export default function App() {
   const s = useSettings();
-  const [tab, setTab] = useState<Tab>('add');
+  const [tab, setTab] = useState<Tab>(() => (new URLSearchParams(location.search).has('trip') ? 'trips' : 'add')); // a trip invite link
   const [seen, setSeen] = useState(new Set<Tab>(['add'])); // screens stay mounted once visited, so forms survive tab switches
   useEffect(() => { setSeen(v => v.has(tab) ? v : new Set(v).add(tab)); }, [tab]);
   useEffect(() => { window.scrollTo(0, 0); }, [tab]);
   useEffect(() => { addDueRepeats().then(n => n && toast(`Added ${n} monthly repeat${n > 1 ? 's' : ''} 🔁`)); }, []);
   useEffect(() => { if (s?.toured === false) setTab('add'); }, [s?.toured]); // replaying the tour from Settings starts on Add
   useEffect(() => scheduleReminder(s?.remindAt ?? ''), [s?.remindAt]);
+  useEffect(() => { // a shared trip in trip mode pulls friends' bills whenever the app comes back
+    const pull = () => document.visibilityState === 'visible' && syncQuiet(s?.tripId);
+    pull();
+    document.addEventListener('visibilitychange', pull);
+    return () => document.removeEventListener('visibilitychange', pull);
+  }, [s?.tripId]);
   if (!s) return null;
   if (!s.onboarded) return <Onboarding />;
 

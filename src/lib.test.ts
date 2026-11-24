@@ -1,5 +1,5 @@
 // Run with `npm test` (Node strips the types). Throws on the first mismatch.
-import { settleUp, tagTrip, tripNet, ME, balances, buildMemory, pullUdhaar, DEFAULT_CATEGORIES as cats, days, equiv, streak, isYmd, localParse, period, summarize, type Entry, type Memory } from './lib.ts';
+import { markPayers, owed, splitError, settleUp, tagTrip, tripNet, ME, balances, buildMemory, pullUdhaar, DEFAULT_CATEGORIES as cats, days, equiv, streak, isYmd, localParse, period, summarize, type Entry, type Memory } from './lib.ts';
 
 const eq = (got: unknown, want: unknown) => {
   if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`\n got: ${JSON.stringify(got)}\nwant: ${JSON.stringify(want)}`);
@@ -100,8 +100,19 @@ eq(net, { Rahul: 700, me: -250, Amit: -450 });
 eq(settleUp(net), [{ from: 'Amit', to: 'Rahul', amount: 450 }, { from: ME, to: 'Rahul', amount: 250 }]);
 eq(settleUp(tripNet([te(ME, 100, [ME, 'A', 'B'])])), [{ from: 'A', to: ME, amount: 33.33 }, { from: 'B', to: ME, amount: 33.33 }]);
 const trip = { id: 1, name: 'Goa', emoji: '🏖️', members: ['Rahul', 'Amit'], start: T, budget: 0, settles: [] };
-const tag = (s: string) => tagTrip(localParse(s, cats, undefined, T), trip).map(d => [d.item, d.paidBy, d.amount]);
+const tag = (s: string) => tagTrip(localParse(markPayers(s, trip), cats, undefined, T), trip).map(d => [d.item, d.paidBy, d.amount]);
 eq(tag('dinner 1200 rahul paid, cab 300'), [['dinner', 'Rahul', 1200], ['cab', ME, 300]]);
 eq(tag('amit paid petrol 900'), [['petrol', 'Amit', 900]]);
+eq(tag('rahul paid 1200 for dinner'), [['dinner', 'Rahul', 1200]]);
+eq(tag('hotel 4000 paid by Amit'), [['hotel', 'Amit', 4000]]);
+eq(tag('gift for rahul 500'), [['gift for rahul', ME, 500]]); // a name alone isn't a payer
+eq(markPayers('rahul paid back 300', trip), 'rahul paid back 300'); // still udhaar
 eq(tagTrip(localParse('chai 20', cats, undefined, T), trip)[0].split, [ME, 'Rahul', 'Amit']);
+// custom splits
+eq(owed(900, [ME, 'Rahul'], { me: 600, Rahul: 300 }), { me: 600, Rahul: 300 });
+eq(owed(1000, [ME, 'Rahul', 'Amit'], { me: 2, Rahul: 1, Amit: 1 }), { me: 500, Rahul: 250, Amit: 250 });
+eq(tripNet([{ paidBy: 'Rahul', total: 1000, split: [ME, 'Rahul'], shares: { me: 70, Rahul: 30 } } as unknown as Entry]), { Rahul: 700, me: -700 });
+eq(splitError({ amount: 900, split: [ME, 'Rahul'], shares: { me: 500, Rahul: 300 }, splitBy: 'exact' }), '100 left to assign');
+eq(splitError({ amount: 900, split: [ME, 'Rahul'], shares: { me: 60, Rahul: 50 }, splitBy: 'percent' }), '10% too much');
+eq(splitError({ amount: 900, split: [ME, 'Rahul'], shares: { me: 60, Rahul: 40 }, splitBy: 'percent' }), '');
 console.log('trips ok');

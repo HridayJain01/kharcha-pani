@@ -11,7 +11,7 @@ There's no login, no backend and no cost: your data lives only on your device.
 - **Ledger**: every entry grouped by day, with search, category filters, and edit or delete
 - **Overview**: day, week or month totals, change vs the previous period, a donut and daily bars, top categories, fun stats, a budget meter, and **ROAST ME 🔥**
 - **Udhaar 🤝**: type `gave rahul 500 for books`, `amit se 200 liye`, `rahul paid back 300` or `dinner 1200 split with rahul, neha` in the same box. The reason is optional. Udhaar never counts as spending, and Overview shows **To take** and **To give** for each person, with their full history
-- **Trips 🧳**: Splitwise-style groups. Start a trip with your friends and trip mode splits everything you log on Add. `dinner 1200 rahul paid` sets who paid, and each card lets you change the payer and who shares it. The trip shows group total, your share, each person's balance and the fewest payments to settle up. Tap **Paid ✅**, move your part into Udhaar, or share the summary to the group chat. Only your share counts as your spending
+- **Trips 🧳**: Splitwise-style groups. Start a trip with your friends and trip mode splits everything you log on Add. Say who paid: `dinner 1200 rahul paid`, `paid by amit`, `rahul ne diye`. A name on its own (`gift for rahul`) doesn't count. Split equally, by exact amounts, by percent, or by ratio (2:1). The trip shows the group total, your share, each person's balance and the fewest payments to settle up. **Share live with the group** sends a link: friends open it, pick their name, and add bills from their own phone. Only your share counts as your spending
 - **Streaks**: the 🔥 streak warns you when it ends tonight, and **Spent nothing today** keeps it alive on a no-spend day
 - **Settings**: optional AI key, offline voice model, currency, categories (add, rename, recolour), budget, CSV export, zip backup and restore
 
@@ -85,6 +85,11 @@ Without this, the nightly reminder (Settings → 🔔 Reminder) only fires while
 5. Vercel's free plan only runs crons once a day, so use https://cron-job.org (free). Make a job that calls `GET https://<your-app>/api/push` every 15 minutes, with the header `Authorization: Bearer <CRON_SECRET>`.
 
 Reminders arrive within one cron interval after the chosen time. On iPhone they need iOS 16.4 or newer, and the app has to be added to the Home Screen.
+
+## Shared trips (optional)
+
+**Share live with the group** needs the same Upstash Redis as reminders (`KV_REST_API_URL` and `KV_REST_API_TOKEN`, step 2 above). Without it, trips still work on one phone, and the app says sharing isn't set up.
+There are no accounts: the random code in the trip link is the key, so anyone with the link can see and edit that trip. Phones sync when the trip is opened, every 15 seconds while it's open, and whenever the app comes back to the foreground. If two people edit the same bill, the later edit wins.
 
 ## 2. Run it locally
 

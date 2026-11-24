@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { EntryCard, EntrySheet, who } from '../components/Entry';
 import { db, saveDrafts, saveSettings, useCats, useLive, type Settings } from '../db';
 import { confetti, toast } from '../fx';
 import { catOf, IOU, ME, money, norm, settleUp, today, tripNet, UDHAAR, type Entry, type Trip } from '../lib';
+import { joinTrip, peekTrip, startSharing, syncQuiet, syncTrip, tripLink } from '../share';
 
 const EMOJIS = ['🏖️', '⛰️', '🏕️', '✈️', '🚗', '🎉', '🏠', '🍻'];
 const names = (s: string) => [...new Map(s.split(/[,\n]/).map(n => n.trim()).filter(n => n && norm(n) !== ME).map(n => [norm(n), n])).values()];
@@ -20,7 +21,9 @@ export default function Trips({ s }: { s: Settings }) {
   const trips = useLive(() => db.trips.reverse().toArray());
   const [open, setOpen] = useState<number>();
   const [adding, setAdding] = useState(false);
+  const [joining, setJoining] = useState(() => new URLSearchParams(location.search).get('trip') ?? '');
   if (!trips) return null;
+  if (joining) return <JoinTrip code={joining} s={s} onDone={id => { history.replaceState(null, '', location.pathname); setJoining(''); setOpen(id); }} />;
   const trip = trips.find(t => t.id === open);
   if (trip) return <TripView trip={trip} s={s} onBack={() => setOpen(undefined)} />;
 
@@ -41,12 +44,61 @@ export default function Trips({ s }: { s: Settings }) {
           <span className="text-4xl" aria-hidden>{t.emoji}</span>
           <span className="min-w-0 flex-1">
             <span className="block truncate font-display text-2xl">{t.name}</span>
-            <span className="block truncate text-sm font-bold">You, {t.members.join(', ')}</span>
+            <span className="block truncate text-sm font-bold">{t.code ? '🔗 ' : ''}You, {t.members.join(', ')}</span>
           </span>
           {t.id === s.tripId && <span className="rounded-full border-3 border-ink bg-lime px-2 text-xs font-bold">LIVE</span>}
         </button>
       ))}
     </div>
+  );
+}
+
+// Opened from an invite link: say who you are in the group, then the trip syncs onto this phone.
+function JoinTrip({ code, s, onDone }: { code: string; s: Settings; onDone: (id?: number) => void }) {
+  const [meta, setMeta] = useState<Awaited<ReturnType<typeof peekTrip>>>();
+  const [err, setErr] = useState('');
+  const [name, setName] = useState(s.name);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    db.trips.toArray().then(ts => ts.find(t => t.code === code)).then(have => have
+      ? onDone(have.id)
+      : peekTrip(code).then(setMeta, e => setErr((e as Error).message)));
+  }, [code]);
+  async function join(me: string) {
+    if (!meta || !me.trim()) return;
+    setBusy(true);
+    try {
+      const id = await joinTrip(code, me.trim(), meta);
+      confetti();
+      toast(`You're in ${meta.name} 🧳 Trip mode is on`);
+      onDone(id);
+    } catch (e) {
+      setBusy(false);
+      toast(`Couldn't join 😵 ${(e as Error).message}`);
+    }
+  }
+  if (err) return (
+    <section className="card grid gap-3 p-4">
+      <p className="font-display text-2xl">That trip link didn't work 😵</p>
+      <p className="font-bold">{err}</p>
+      <button className="btn bg-white" onClick={() => onDone()}>OK</button>
+    </section>
+  );
+  if (!meta) return <p className="p-10 text-center font-display text-3xl">Finding the trip… 🧳</p>;
+  return (
+    <section className="card grid gap-3 p-4">
+      <p className="text-5xl" aria-hidden>{meta.emoji}</p>
+      <p className="font-display text-3xl">Join {meta.name}?</p>
+      <p className="font-bold">Which one is you?</p>
+      <div className="flex flex-wrap gap-2">
+        {meta.members.map(m => <button key={m} className="btn bg-lime normal-case" disabled={busy} onClick={() => join(m)}>{m}</button>)}
+      </div>
+      <form className="flex gap-2" onSubmit={e => { e.preventDefault(); join(name); }}>
+        <input className="input min-w-0 flex-1" placeholder="Not listed? Your name" value={name} onChange={e => setName(e.target.value)} aria-label="Your name" />
+        <button className="btn bg-white" disabled={busy || !name.trim()}>Join</button>
+      </form>
+      <button className="btn bg-white" onClick={() => onDone()}>Not now</button>
+    </section>
   );
 }
 
@@ -83,6 +135,17 @@ function TripView({ trip, s, onBack }: { trip: Trip; s: Settings; onBack: () => 
   const es = useLive(() => db.entries.where('trip').equals(trip.id).toArray().then(l => l.sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt)), [trip.id]);
   const [editing, setEditing] = useState<Entry>();
   const [newMember, setNewMember] = useState('');
+  const [synced, setSynced] = useState<string>();
+  // Shared trips pull friends' bills when opened and every 15 s while you look at them.
+  useEffect(() => {
+    if (!trip.code) return;
+    const pull = () => document.visibilityState === 'visible' && syncTrip(trip.id).then(
+      () => setSynced(`Synced ${new Date().toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`),
+      e => setSynced(`Offline: ${(e as Error).message}`));
+    pull();
+    const timer = setInterval(pull, 15_000);
+    return () => clearInterval(timer);
+  }, [trip.id, trip.code]);
   const $ = (n: number) => money(n, s.currency);
   if (!es || !cats) return null;
 
@@ -93,7 +156,22 @@ function TripView({ trip, s, onBack }: { trip: Trip; s: Settings; onBack: () => 
   const mine = es.reduce((n, e) => n + e.amount, 0);
   const used = new Set([...es.flatMap(e => [e.paidBy ?? ME, ...(e.split ?? [])]), ...trip.settles.flatMap(x => [x.from, x.to])]);
   const set = (patch: Partial<Trip>) => db.trips.update(trip.id, patch);
-  const settle = (p: { from: string; to: string; amount: number }) => set({ settles: [...trip.settles, { ...p, date: today() }] });
+  const settle = (p: { from: string; to: string; amount: number }) =>
+    set({ settles: [...trip.settles, { ...p, date: today(), uid: crypto.randomUUID(), at: Date.now() }] }).then(() => syncQuiet(trip.id));
+
+  async function invite() {
+    if (!trip.code) {
+      const me = prompt(`What does the group call you?`, s.name)?.trim();
+      if (!me) return;
+      try {
+        await startSharing(trip.id, me);
+      } catch (e) {
+        return toast(`Couldn't share 😵 ${(e as Error).message}`);
+      }
+    }
+    const t = (await db.trips.get(trip.id))!;
+    share(`Join our ${t.emoji} ${t.name} trip on Kharcha Pani. Add the bills, see who owes what: ${tripLink(t)}`);
+  }
 
   // Your part of the plan moves into the all-time Udhaar ledger, and the trip records it as settled.
   async function toUdhaar() {
@@ -132,6 +210,9 @@ function TripView({ trip, s, onBack }: { trip: Trip; s: Settings; onBack: () => 
         {live ? '⏸ Pause trip mode' : '▶️ Turn on trip mode'}
       </button>
       {live && <p className="-mt-2 text-center text-sm font-bold">Everything you log on Add is split with this group.</p>}
+      <button className="btn bg-sky/40 text-lg" onClick={invite}>{trip.code ? '🔗 Invite more friends' : '🔗 Share live with the group'}</button>
+      {trip.code ? <p className="-mt-2 text-center text-sm font-bold">🟢 Live as {trip.meName}. {synced ?? 'Syncing…'}</p>
+        : <p className="-mt-2 text-center text-sm font-bold">Friends open the link and add bills from their own phone.</p>}
 
       <section className="grid grid-cols-2 gap-2">
         <div className="card bg-sunny p-3"><p className="label">Group spent</p><p className="font-display text-3xl break-all">{$(group)}</p></div>
@@ -168,7 +249,7 @@ function TripView({ trip, s, onBack }: { trip: Trip; s: Settings; onBack: () => 
           </div>
         )) : <p className="font-bold">{es.length ? 'All square. Friendship intact 🫶' : 'No bills yet. Log one on Add while trip mode is on.'}</p>}
         <div className="flex flex-wrap gap-2">
-          {plan.some(p => p.from === ME || p.to === ME) && <button className="btn bg-white text-sm" onClick={toUdhaar}>Move my part to Udhaar</button>}
+          {!trip.code && plan.some(p => p.from === ME || p.to === ME) && <button className="btn bg-white text-sm" onClick={toUdhaar}>Move my part to Udhaar</button>}
           {es.length > 0 && <button className="btn bg-white text-sm" onClick={() => share(summary)}>Share in group 📤</button>}
         </div>
       </section>
@@ -196,7 +277,7 @@ function TripView({ trip, s, onBack }: { trip: Trip; s: Settings; onBack: () => 
           {trip.members.map(m => (
             <div key={m} className="flex items-center justify-between gap-2">
               <span className="font-bold">{m}</span>
-              {used.has(m) ? <span className="text-xs font-bold">in bills</span> : (
+              {used.has(m) || trip.code ? <span className="text-xs font-bold">{trip.code ? '' : 'in bills'}</span> : (
                 <button className="btn bg-white text-sm" onClick={() => set({ members: trip.members.filter(x => x !== m) })}>Remove</button>
               )}
             </div>
@@ -204,7 +285,7 @@ function TripView({ trip, s, onBack }: { trip: Trip; s: Settings; onBack: () => 
           <form className="flex gap-2" onSubmit={e => {
             e.preventDefault();
             const add = names(newMember).filter(n => !trip.members.some(m => norm(m) === norm(n)));
-            if (add.length) set({ members: [...trip.members, ...add] });
+            if (add.length) set({ members: [...trip.members, ...add] }).then(() => syncQuiet(trip.id));
             setNewMember('');
           }}>
             <input className="input min-w-0 flex-1" placeholder="Add someone" value={newMember} onChange={e => setNewMember(e.target.value)} aria-label="Add someone" />

@@ -3,7 +3,8 @@ import { aiParse, hasAI } from '../ai';
 import { EntryCard, EntryFields, EntrySheet } from '../components/Entry';
 import { db, getNoSpend, markNoSpend, saveDrafts, saveSettings, useCats, useLive, useToday, type Settings } from '../db';
 import { clink, coinBurst, confetti, toast } from '../fx';
-import { addDays, buildMemory, catOf, localParse, money, okDraft, period, pullUdhaar, streak, tagTrip, today, type Draft, type Entry } from '../lib';
+import { addDays, buildMemory, catOf, localParse, money, okDraft, period, markPayers, pullUdhaar, streak, tagTrip, today, type Draft, type Entry } from '../lib';
+import { syncQuiet } from '../share';
 import { cloudVoice, loadOffline, offlineReady, OFFLINE_MB, record, transcribe } from '../voice';
 
 const QUIPS = [
@@ -78,6 +79,7 @@ export default function Add({ s }: { s: Settings }) {
   async function parse(input: string) {
     input = input.trim();
     if (!input || !cats || busy) return;
+    if (trip) input = markPayers(input, trip); // "rahul paid" → who paid this bill
     setBusy(true);
     const memory = buildMemory(await db.entries.toArray()); // learns from everything you've saved
     const { rest, drafts: udhaar } = pullUdhaar(input, cats, memory); // "gave rahul 500" etc., always offline
@@ -111,6 +113,7 @@ export default function Add({ s }: { s: Settings }) {
     setDrafts([]); // hides the button right away, so a double tap can't save twice
     try {
       const ids = await saveDrafts(batch);
+      if (batch.some(d => d.trip)) syncQuiet(trip?.id);
       setFresh(ids);
       setTimeout(() => setFresh([]), 2200);
     } catch (err) {

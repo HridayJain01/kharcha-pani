@@ -3,7 +3,9 @@
 
 export interface Category { id: string; name: string; emoji: string; color: string; hint: string; order: number }
 // Udhaar entries carry `person` + `iou`, and the item is the (optional) reason. They're never counted as spending.
-export interface Entry { id: number; item: string; quantity: number; amount: number; category: string; date: string; emoji: string; createdAt: number; person?: string; iou?: Iou }
+// Trip entries also carry the bill: `total`, who paid it and who it's split between. `amount` is always YOUR share,
+// so every spending total stays honest. In a draft, `amount` is the whole bill until it's saved.
+export interface Entry { id: number; item: string; quantity: number; amount: number; category: string; date: string; emoji: string; createdAt: number; person?: string; iou?: Iou; trip?: number; total?: number; paidBy?: string; split?: string[] }
 export interface PhotoRef { id?: number; blob: Blob }
 export type Draft = Omit<Entry, 'id' | 'amount' | 'createdAt'> & { amount: number | null; photos: PhotoRef[] };
 
@@ -299,7 +301,7 @@ export const IOU: Record<Iou, { sign: 1 | -1; label: string; emoji: string }> = 
   got: { sign: -1, label: 'Got back from', emoji: '💰' },
   repaid: { sign: 1, label: 'Paid back to', emoji: '✅' },
 };
-export const okDraft = (d: Draft) => Number(d.amount) > 0 && (d.iou ? !!d.person?.trim() : !!d.item.trim());
+export const okDraft = (d: Draft) => Number(d.amount) > 0 && (d.iou ? !!d.person?.trim() : !!d.item.trim() && (!d.trip || !!d.split?.length));
 
 const NAME = String.raw`(?<!\p{L})(?!(?:me|i|you|he|she|they|him|her|them|us|back|from|to|for|the|money|cash|loan|udhaa?r|wapas|rs|inr)(?!\p{L}))(?<p>\p{L}+)`;
 // First match wins, so "paid back" rules come before plain "gave"/"took". ponytail: regex cues, one-word names.
@@ -435,3 +437,56 @@ export const guilt = (budgetPct: number | null, changePct: number | null) => {
   const v = budgetPct ?? (changePct === null ? 0 : 50 + changePct);
   return v < 50 ? '😇' : v < 80 ? '😅' : v < 100 ? '😱' : '💀';
 };
+
+// ---------- trips: Splitwise-style groups ----------
+
+export const ME = 'me'; // you, inside a trip's paidBy / split / settles
+export interface Settle { from: string; to: string; amount: number; date: string } // `from` paid `to`
+export interface Trip { id: number; name: string; emoji: string; members: string[]; start: string; budget: number; settles: Settle[] }
+
+const r2 = (n: number) => Math.round(n * 100) / 100;
+export const myShare = (total: number, split: string[]) => (split.includes(ME) ? r2(total / split.length) : 0);
+
+// Net per person (ME included): > 0 gets money back, < 0 owes the group. ponytail: equal splits only.
+export function tripNet(entries: Entry[], settles: Settle[] = []) {
+  const net: Record<string, number> = {};
+  const add = (k: string, v: number) => { net[k] = (net[k] ?? 0) + v; };
+  for (const e of entries) {
+    if (!e.split?.length || !e.total) continue;
+    add(e.paidBy ?? ME, e.total);
+    for (const p of e.split) add(p, -e.total / e.split.length);
+  }
+  for (const s of settles) { add(s.from, s.amount); add(s.to, -s.amount); }
+  return Object.fromEntries(Object.entries(net).map(([k, v]) => [k, r2(v)]));
+}
+
+// Fewest payments that clear everyone: biggest debtor pays biggest creditor, repeat.
+export function settleUp(net: Record<string, number>) {
+  const cred = Object.entries(net).filter(([, v]) => v > 0.009).map(([k, v]) => ({ k, v })).sort((a, b) => b.v - a.v);
+  const debt = Object.entries(net).filter(([, v]) => v < -0.009).map(([k, v]) => ({ k, v: -v })).sort((a, b) => b.v - a.v);
+  const out: { from: string; to: string; amount: number }[] = [];
+  for (let i = 0, j = 0; i < cred.length && j < debt.length;) {
+    const m = Math.min(cred[i].v, debt[j].v);
+    if (m > 0.009) out.push({ from: debt[j].k, to: cred[i].k, amount: r2(m) });
+    cred[i].v -= m; debt[j].v -= m;
+    if (cred[i].v < 0.01) i++;
+    if (debt[j].v < 0.01) j++;
+  }
+  return out;
+}
+
+// In trip mode a member's name means they paid: "rahul paid dinner 1200" (name in the item) or
+// "dinner 1200 rahul paid" (the parser leaves the name as its own empty entry, which joins the one before).
+export function tagTrip(drafts: Draft[], trip: Trip): Draft[] {
+  const payerIn = (item: string) => trip.members.find(m => item.split(/\s+/).some(w => norm(w) === norm(m)));
+  const out: Draft[] = [];
+  for (const d of drafts) {
+    if (d.iou) { out.push(d); continue; }
+    const payer = payerIn(d.item);
+    const prev = out.findLast(x => x.trip);
+    if (payer && d.amount === null && norm(d.item) === norm(payer) && prev) { prev.paidBy = payer; continue; }
+    const item = payer ? d.item.split(/\s+/).filter(w => norm(w) !== norm(payer)).join(' ') || d.item : d.item;
+    out.push({ ...d, item, trip: trip.id, split: [ME, ...trip.members], paidBy: payer ?? ME });
+  }
+  return out;
+}

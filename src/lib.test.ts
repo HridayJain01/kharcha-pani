@@ -1,5 +1,5 @@
 // Run with `npm test` (Node strips the types). Throws on the first mismatch.
-import { balances, buildMemory, pullUdhaar, DEFAULT_CATEGORIES as cats, days, equiv, streak, isYmd, localParse, period, summarize, type Entry, type Memory } from './lib.ts';
+import { settleUp, tagTrip, tripNet, ME, balances, buildMemory, pullUdhaar, DEFAULT_CATEGORIES as cats, days, equiv, streak, isYmd, localParse, period, summarize, type Entry, type Memory } from './lib.ts';
 
 const eq = (got: unknown, want: unknown) => {
   if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`\n got: ${JSON.stringify(got)}\nwant: ${JSON.stringify(want)}`);
@@ -92,3 +92,16 @@ const ious = pullUdhaar('gave rahul 500, Rahul paid back 200, amit se 300 liye, 
   .map((d, i) => ({ ...d, id: i, amount: d.amount!, createdAt: 0 }));
 eq(balances(ious).map(b => [b.name, b.net]), [['Rahul', 300], ['Amit', -300], ['Neha', 0]]);
 console.log('udhaar ok');
+
+// trips: Rahul paid 1200 for 3, I paid 300 for me + Amit, then Amit paid Rahul 100
+const te = (paidBy: string, total: number, split: string[]) => ({ paidBy, total, split } as Entry);
+const net = tripNet([te('Rahul', 1200, [ME, 'Rahul', 'Amit']), te(ME, 300, [ME, 'Amit'])], [{ from: 'Amit', to: 'Rahul', amount: 100, date: T }]);
+eq(net, { Rahul: 700, me: -250, Amit: -450 });
+eq(settleUp(net), [{ from: 'Amit', to: 'Rahul', amount: 450 }, { from: ME, to: 'Rahul', amount: 250 }]);
+eq(settleUp(tripNet([te(ME, 100, [ME, 'A', 'B'])])), [{ from: 'A', to: ME, amount: 33.33 }, { from: 'B', to: ME, amount: 33.33 }]);
+const trip = { id: 1, name: 'Goa', emoji: '🏖️', members: ['Rahul', 'Amit'], start: T, budget: 0, settles: [] };
+const tag = (s: string) => tagTrip(localParse(s, cats, undefined, T), trip).map(d => [d.item, d.paidBy, d.amount]);
+eq(tag('dinner 1200 rahul paid, cab 300'), [['dinner', 'Rahul', 1200], ['cab', ME, 300]]);
+eq(tag('amit paid petrol 900'), [['petrol', 'Amit', 900]]);
+eq(tagTrip(localParse('chai 20', cats, undefined, T), trip)[0].split, [ME, 'Rahul', 'Amit']);
+console.log('trips ok');

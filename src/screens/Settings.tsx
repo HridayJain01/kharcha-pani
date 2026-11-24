@@ -1,8 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { PROVIDERS, SHARED, testKey } from '../ai';
-import { db, DEFAULT_SETTINGS, getRepeats, useLive, getSettings, saveSettings, useCats, type Provider, type Settings as S } from '../db';
+import { db, DEFAULT_SETTINGS, getNoSpend, getRepeats, useLive, getSettings, saveSettings, useCats, type Provider, type Settings as S } from '../db';
 import { toast } from '../fx';
-import { catOf, guessCategory, IOU, isYmd, money, today, ymd, type Category, type Entry } from '../lib';
+import { catOf, guessCategory, IOU, isYmd, ME, money, today, ymd, type Category, type Entry, type Trip } from '../lib';
 import { loadOffline, offlineReady, OFFLINE_MB, removeOffline } from '../voice';
 
 const PALETTE = ['#B8F135', '#FFD23F', '#9B5DE5', '#FF5A36', '#3A86FF', '#FF4FA3'];
@@ -101,8 +101,10 @@ export default function Settings({ s }: { s: S }) {
 
   async function exportCsv() {
     const rows = await db.entries.orderBy('date').toArray();
-    const csv = [['date', 'item', 'quantity', 'amount', 'category', 'udhaar', 'person'],
-      ...rows.map(e => [e.date, e.item, e.quantity, e.amount, catOf(cats!, e.category).name, e.iou ? IOU[e.iou].label : '', e.person ?? ''])]
+    const trips = new Map((await db.trips.toArray()).map(t => [t.id, t.name]));
+    const csv = [['date', 'item', 'quantity', 'amount', 'category', 'udhaar', 'person', 'trip', 'bill total', 'paid by', 'split between'],
+      ...rows.map(e => [e.date, e.item, e.quantity, e.amount, catOf(cats!, e.category).name, e.iou ? IOU[e.iou].label : '', e.person ?? '',
+        e.trip ? trips.get(e.trip) ?? '' : '', e.total ?? '', e.paidBy ?? '', e.split?.join(' + ') ?? ''])]
       .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
       .join('\r\n');
     await saveFile(new Blob(['﻿' + csv], { type: 'text/csv' }), `kharcha-pani-${today()}.csv`); // BOM so Excel reads ₹ and emoji
@@ -111,13 +113,13 @@ export default function Settings({ s }: { s: S }) {
   // ponytail: the whole zip is built in memory; fine for hundreds of photos, stream it if it ever grows to thousands.
   async function backup() {
     const { default: JSZip } = await import('jszip');
-    const [entries, categories, photos, settings, repeats] =
-      await Promise.all([db.entries.toArray(), db.categories.toArray(), db.photos.toArray(), getSettings(), getRepeats()]);
+    const [entries, categories, photos, settings, repeats, trips, nospend] =
+      await Promise.all([db.entries.toArray(), db.categories.toArray(), db.photos.toArray(), getSettings(), getRepeats(), db.trips.toArray(), getNoSpend()]);
     const zip = new JSZip();
     zip.file('data.json', JSON.stringify({
       app: 'kharcha-pani', version: 1, exportedAt: new Date().toISOString(),
       settings: { ...settings, apiKey: undefined }, // the key never leaves the device
-      categories, entries, repeats, photos: photos.map(p => ({ id: p.id, entryId: p.entryId })),
+      categories, entries, repeats, trips, nospend, photos: photos.map(p => ({ id: p.id, entryId: p.entryId })),
     }));
     for (const p of photos) zip.file(`photos/${p.id}.jpg`, p.blob);
     await saveFile(await zip.generateAsync({ type: 'blob' }), `kharcha-pani-backup-${today()}.zip`);
@@ -131,9 +133,18 @@ export default function Settings({ s }: { s: S }) {
       const data = JSON.parse((await zip.file('data.json')?.async('string')) ?? 'null');
       if (data?.app !== 'kharcha-pani' || !Array.isArray(data.entries)) throw new Error("that's not a Kharcha Pani backup");
       const entries: Entry[] = data.entries
-        .filter((e: any) => Number.isInteger(e?.id) && typeof e.item === 'string' && Number(e.amount) > 0 && isYmd(e.date) && typeof e.category === 'string')
+        .filter((e: any) => Number.isInteger(e?.id) && typeof e.item === 'string' && (Number(e.amount) > 0 || (Number(e.amount) === 0 && e.trip)) && isYmd(e.date) && typeof e.category === 'string')
         .map((e: any) => ({ id: e.id, item: e.item.slice(0, 60), quantity: Math.max(1, Number(e.quantity) || 1), amount: Number(e.amount), category: e.category, date: e.date, emoji: String(e.emoji ?? ''), createdAt: Number(e.createdAt) || Date.now(),
-          ...(Object.hasOwn(IOU, e.iou) && typeof e.person === 'string' && e.person.trim() ? { iou: e.iou, person: e.person.trim().slice(0, 40) } : {}) }));
+          ...(Object.hasOwn(IOU, e.iou) && typeof e.person === 'string' && e.person.trim() ? { iou: e.iou, person: e.person.trim().slice(0, 40) } : {}),
+          ...(Number.isInteger(e.trip) && Number(e.total) > 0 && Array.isArray(e.split) && e.split.length && e.split.every((p: any) => typeof p === 'string')
+            ? { trip: e.trip, total: Number(e.total), split: e.split.map((p: string) => p.slice(0, 40)), paidBy: String(e.paidBy ?? ME).slice(0, 40) } : {}) }));
+      const str = (v: any) => typeof v === 'string' && !!v.trim();
+      const trips: Trip[] = (Array.isArray(data.trips) ? data.trips : [])
+        .filter((t: any) => Number.isInteger(t?.id) && str(t.name) && Array.isArray(t.members))
+        .map((t: any) => ({ id: t.id, name: t.name.slice(0, 40), emoji: String(t.emoji ?? '🧳'), members: t.members.filter(str).map((m: string) => m.slice(0, 40)),
+          start: isYmd(t.start) ? t.start : today(), budget: Math.max(0, Number(t.budget) || 0),
+          settles: (Array.isArray(t.settles) ? t.settles : []).filter((x: any) => str(x?.from) && str(x.to) && Number(x.amount) > 0 && isYmd(x.date))
+            .map((x: any) => ({ from: x.from.slice(0, 40), to: x.to.slice(0, 40), amount: Number(x.amount), date: x.date })) }));
       const categories: Category[] = (Array.isArray(data.categories) ? data.categories : [])
         .filter((c: any) => typeof c?.id === 'string' && typeof c.name === 'string')
         .map((c: any, i: number) => ({ id: c.id, name: c.name, emoji: String(c.emoji ?? '🏷️'), color: /^#[0-9a-f]{6}$/i.test(c.color) ? c.color : PALETTE[i % PALETTE.length], hint: String(c.hint ?? ''), order: Number(c.order) || i }));
@@ -146,8 +157,10 @@ export default function Settings({ s }: { s: S }) {
         blob: new Blob([await zip.file(`photos/${p.id}.jpg`)!.async('arraybuffer')], { type: 'image/jpeg' }),
       })));
       const st = data.settings ?? {};
-      await db.transaction('rw', [db.entries, db.categories, db.photos, db.kv], async () => {
-        await Promise.all([db.entries.clear(), db.categories.clear(), db.photos.clear()]);
+      await db.transaction('rw', [db.entries, db.categories, db.photos, db.trips, db.kv], async () => {
+        await Promise.all([db.entries.clear(), db.categories.clear(), db.photos.clear(), db.trips.clear()]);
+        await db.trips.bulkAdd(trips);
+        if (Array.isArray(data.nospend)) await db.kv.put({ key: 'nospend', value: data.nospend.filter(isYmd) });
         await db.entries.bulkAdd(entries);
         await db.categories.bulkAdd(categories);
         await db.photos.bulkAdd(photos);
@@ -160,6 +173,7 @@ export default function Settings({ s }: { s: S }) {
           ...(Number(st.budget) >= 0 ? { budget: Number(st.budget) } : {}),
           ...(typeof st.model === 'string' && st.model ? { model: st.model } : {}),
           ...(typeof st.name === 'string' ? { name: st.name.slice(0, 30) } : {}),
+          tripId: trips.some(t => t.id === st.tripId) ? st.tripId : 0,
         });
       });
       toast('Restored ♻️');

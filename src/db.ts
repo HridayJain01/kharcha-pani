@@ -1,21 +1,23 @@
 import Dexie, { liveQuery, type EntityTable, type Table } from 'dexie';
 import { useEffect, useState } from 'react';
-import { DEFAULT_CATEGORIES, norm, today, ymd, type Category, type Draft, type Entry } from './lib';
+import { DEFAULT_CATEGORIES, ME, myShare, norm, today, ymd, type Category, type Draft, type Entry, type Trip } from './lib';
 
 export interface Photo { id: number; entryId: number; blob: Blob }
 export type Provider = 'groq' | 'gemini' | 'custom';
-export interface Settings { provider: Provider; apiKey: string; model: string; baseUrl: string; currency: string; budget: number; goal: string; goalAmount: number; name: string; onboarded: boolean; toured: boolean; remindAt: string }
+export interface Settings { provider: Provider; apiKey: string; model: string; baseUrl: string; currency: string; budget: number; goal: string; goalAmount: number; name: string; onboarded: boolean; toured: boolean; remindAt: string; tripId: number }
 export const DEFAULT_MODELS: Record<Provider, string> = { groq: 'openai/gpt-oss-20b', gemini: 'gemini-3.5-flash-lite', custom: '' };
-export const DEFAULT_SETTINGS: Settings = { provider: 'groq', apiKey: '', model: DEFAULT_MODELS.groq, baseUrl: '', currency: '₹', budget: 0, goal: '', goalAmount: 0, name: '', onboarded: false, toured: false, remindAt: '' };
+export const DEFAULT_SETTINGS: Settings = { provider: 'groq', apiKey: '', model: DEFAULT_MODELS.groq, baseUrl: '', currency: '₹', budget: 0, goal: '', goalAmount: 0, name: '', onboarded: false, toured: false, remindAt: '', tripId: 0 };
 
 // Everything lives in this one on-device IndexedDB. `kv` holds settings and cached roasts.
 export const db = new Dexie('kharcha-pani') as Dexie & {
   entries: EntityTable<Entry, 'id'>;
   photos: EntityTable<Photo, 'id'>;
   categories: Table<Category, string>;
+  trips: EntityTable<Trip, 'id'>;
   kv: Table<{ key: string; value: unknown }, string>;
 };
 db.version(1).stores({ entries: '++id, date, category', photos: '++id, entryId', categories: 'id', kv: 'key' });
+db.version(2).stores({ entries: '++id, date, category, trip', trips: '++id' });
 db.on('populate', tx => tx.table('categories').bulkAdd(DEFAULT_CATEGORIES));
 
 export async function getSettings(): Promise<Settings> {
@@ -53,9 +55,15 @@ export function useToday() {
   return t;
 }
 
-// Undefined person/iou on update deletes them, so switching an entry out of Udhaar cleans up.
-const fields = ({ item, quantity, amount, category, date, emoji, person, iou }: Draft) =>
-  ({ item: item.trim(), quantity, amount: amount ?? 0, category, date, emoji, person: iou ? person?.trim() : undefined, iou });
+// Undefined fields on update delete them, so switching an entry out of Udhaar or a trip cleans up.
+// A trip draft's amount is the whole bill: it's saved as `total`, and `amount` becomes your share.
+const fields = ({ item, quantity, amount, category, date, emoji, person, iou, trip, split, paidBy }: Draft) => {
+  const t = trip && !iou && split?.length;
+  return {
+    item: item.trim(), quantity, amount: t ? myShare(amount ?? 0, split) : amount ?? 0, category, date, emoji, person: iou ? person?.trim() : undefined, iou,
+    trip: t ? trip : undefined, total: t ? amount ?? 0 : undefined, split: t ? split : undefined, paidBy: t ? paidBy ?? ME : undefined,
+  };
+};
 
 export const saveDrafts = (drafts: Draft[]) =>
   db.transaction('rw', db.entries, db.photos, async () => {
@@ -138,7 +146,7 @@ export function scheduleReminder(at: string) {
   if (next <= new Date()) next.setDate(next.getDate() + 1);
   let cancel = () => {};
   const timer = setTimeout(async () => {
-    if (!(await db.entries.where('date').equals(today()).count()))
+    if (!(await db.entries.where('date').equals(today()).count()) && !(await getNoSpend()).includes(today()))
       (await navigator.serviceWorker.ready).showNotification('Kharcha Pani 🪙', { body: `${(await getSettings()).name || 'Oye'}, log today's kharcha before you forget!`, icon: '/pwa-192.png', tag: 'remind' });
     cancel = scheduleReminder(at);
   }, next.getTime() - Date.now());
@@ -146,8 +154,18 @@ export function scheduleReminder(at: string) {
 }
 
 // Logging something today tells the server to skip tonight's push. Once per day per device.
-db.entries.hook('creating', (_, e) => {
-  if (!VAPID || e.date !== today() || localStorage.getItem('pushLogged') === e.date) return;
-  localStorage.setItem('pushLogged', e.date);
-  navigator.serviceWorker?.ready.then(r => r.pushManager.getSubscription()).then(sub => sub && postPush({ endpoint: sub.endpoint, logged: e.date }));
-});
+function pingLogged(date: string) {
+  if (!VAPID || date !== today() || localStorage.getItem('pushLogged') === date) return;
+  localStorage.setItem('pushLogged', date);
+  navigator.serviceWorker?.ready.then(r => r.pushManager.getSubscription()).then(sub => sub && postPush({ endpoint: sub.endpoint, logged: date }));
+}
+db.entries.hook('creating', (_, e) => pingLogged(e.date));
+
+// "Spent nothing today" counts as logging: keeps the streak alive and silences tonight's reminder.
+export const getNoSpend = async () => ((await db.kv.get('nospend'))?.value ?? []) as string[];
+export const markNoSpend = (date = today()) =>
+  db.transaction('rw', db.kv, async () => {
+    const ds = await getNoSpend();
+    if (!ds.includes(date)) await db.kv.put({ key: 'nospend', value: [...ds, date] });
+    pingLogged(date);
+  });

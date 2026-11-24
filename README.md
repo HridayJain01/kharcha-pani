@@ -11,6 +11,8 @@ There's no login, no backend and no cost: your data lives only on your device.
 - **Ledger**: every entry grouped by day, with search, category filters, and edit or delete
 - **Overview**: day, week or month totals, change vs the previous period, a donut and daily bars, top categories, fun stats, a budget meter, and **ROAST ME 🔥**
 - **Udhaar 🤝**: type `gave rahul 500 for books`, `amit se 200 liye`, `rahul paid back 300` or `dinner 1200 split with rahul, neha` in the same box. The reason is optional. Udhaar never counts as spending, and Overview shows **To take** and **To give** for each person, with their full history
+- **Trips 🧳**: Splitwise-style groups. Start a trip with your friends and trip mode splits everything you log on Add. `dinner 1200 rahul paid` sets who paid, and each card lets you change the payer and who shares it. The trip shows group total, your share, each person's balance and the fewest payments to settle up. Tap **Paid ✅**, move your part into Udhaar, or share the summary to the group chat. Only your share counts as your spending
+- **Streaks**: the 🔥 streak warns you when it ends tonight, and **Spent nothing today** keeps it alive on a no-spend day
 - **Settings**: optional AI key, offline voice model, currency, categories (add, rename, recolour), budget, CSV export, zip backup and restore
 
 ## How it understands you

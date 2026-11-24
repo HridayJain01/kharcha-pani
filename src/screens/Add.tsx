@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { aiParse, hasAI } from '../ai';
 import { EntryCard, EntryFields, EntrySheet } from '../components/Entry';
-import { db, saveDrafts, useCats, useLive, useToday, type Settings } from '../db';
+import { db, getNoSpend, markNoSpend, saveDrafts, saveSettings, useCats, useLive, useToday, type Settings } from '../db';
 import { clink, coinBurst, confetti, toast } from '../fx';
-import { addDays, buildMemory, catOf, localParse, money, okDraft, period, pullUdhaar, streak, today, type Draft, type Entry } from '../lib';
+import { addDays, buildMemory, catOf, localParse, money, okDraft, period, pullUdhaar, streak, tagTrip, today, type Draft, type Entry } from '../lib';
 import { cloudVoice, loadOffline, offlineReady, OFFLINE_MB, record, transcribe } from '../voice';
 
 const QUIPS = [
@@ -49,7 +49,8 @@ export default function Add({ s }: { s: Settings }) {
   const cats = useCats();
   const day = useToday();
   const todays = useLive(() => db.entries.where('date').equals(day).reverse().sortBy('createdAt'), [day]);
-  const logged = useLive(() => db.entries.orderBy('date').uniqueKeys().then(k => new Set(k as string[])));
+  const logged = useLive(async () => new Set([...(await db.entries.orderBy('date').uniqueKeys()) as string[], ...await getNoSpend()]));
+  const trip = useLive(() => (s.tripId ? db.trips.get(s.tripId) : Promise.resolve(undefined)), [s.tripId]);
   const [text, setText] = useState('');
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [note, setNote] = useState('');
@@ -96,6 +97,7 @@ export default function Add({ s }: { s: Settings }) {
     }
     if (!out.length) out = localParse(rest, cats, memory);
     out = [...out, ...udhaar];
+    if (trip) out = tagTrip(out, trip); // trip mode: split with the gang, "rahul paid" sets the payer
     setBusy(false);
     setNote(why && `${why} Double-check it!`);
     setDrafts(out);
@@ -168,6 +170,7 @@ export default function Add({ s }: { s: Settings }) {
   const ready = drafts.length > 0 && drafts.every(okDraft);
   const getting = dl !== null && dl < 100 ? ` (voice model ${dl}%)` : '';
   const total = todays?.reduce((n, e) => (e.iou ? n : n + e.amount), 0) ?? 0;
+  const run = logged ? streak(logged, day) : 0;
 
   return (
     <div className="grid gap-5">
@@ -182,10 +185,28 @@ export default function Add({ s }: { s: Settings }) {
           {money(total, s.currency)}
           {ouch && <span className="shake ml-2" role="img" aria-label="Ouch, big spend">👛</span>}
         </p>
-        {logged && streak(logged, day) > 1 && (
-          <p className="mt-3 inline-block rounded-full border-3 border-ink bg-white px-3 py-1 text-sm font-bold">🔥 {streak(logged, day)}-day logging streak</p>
+        {logged?.has(day) ? (
+          run > 1 && <p className="mt-3 inline-block rounded-full border-3 border-ink bg-white px-3 py-1 text-sm font-bold">🔥 {run}-day logging streak</p>
+        ) : logged && (
+          <div className="mt-3 grid justify-items-center gap-2">
+            {run > 0 && <p className="inline-block rounded-full border-3 border-ink bg-tomato px-3 py-1 text-sm font-bold">🔥 {run}-day streak ends tonight. Log something!</p>}
+            <button className="btn bg-white text-sm" onClick={() => markNoSpend().then(() => { confetti(); toast('No-spend day locked in 🙌'); })}>
+              🙌 Spent nothing today
+            </button>
+          </div>
         )}
       </section>
+
+      {trip && (
+        <section className="card flex items-center gap-3 bg-sky/25 p-3">
+          <span className="text-3xl" aria-hidden>{trip.emoji}</span>
+          <p className="min-w-0 flex-1 text-sm font-bold">
+            <span className="block font-display text-xl">Trip mode: {trip.name}</span>
+            Split with {trip.members.join(', ') || 'nobody yet'}. Say "rahul paid" to set who paid.
+          </p>
+          <button className="btn bg-white text-sm" onClick={() => saveSettings({ tripId: 0 })}>Pause</button>
+        </section>
+      )}
 
       <form onSubmit={e => { e.preventDefault(); parse(text); }} data-tour="quick" className="card grid gap-3 p-3">
         <label htmlFor="quick" className="font-display text-2xl">What did you spend on?</label>

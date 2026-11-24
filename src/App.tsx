@@ -5,6 +5,7 @@ import Add from './screens/Add';
 import Ledger from './screens/Ledger';
 import Onboarding from './screens/Onboarding';
 import Settings from './screens/Settings';
+import Trips from './screens/Trips';
 import Tour from './components/Tour';
 
 const Overview = lazy(() => import('./screens/Overview')); // keeps Recharts out of the first load
@@ -12,6 +13,7 @@ const Overview = lazy(() => import('./screens/Overview')); // keeps Recharts out
 const TABS = [
   ['add', '➕', 'Add'],
   ['ledger', '📒', 'Ledger'],
+  ['trips', '🧳', 'Trips'],
   ['overview', '📊', 'Overview'],
   ['settings', '⚙️', 'Settings'],
 ] as const;
@@ -34,6 +36,7 @@ export default function App() {
       <main className="mx-auto max-w-md px-4 pb-32 pt-[max(1rem,env(safe-area-inset-top))]">
         <div hidden={tab !== 'add'}><Add s={s} /></div>
         {seen.has('ledger') && <div hidden={tab !== 'ledger'}><Ledger s={s} /></div>}
+        {seen.has('trips') && <div hidden={tab !== 'trips'}><Trips s={s} /></div>}
         {seen.has('overview') && (
           <div hidden={tab !== 'overview'}>
             <Suspense fallback={<p className="p-10 text-center font-display text-3xl">Crunching… 🧮</p>}>
@@ -44,7 +47,7 @@ export default function App() {
         {seen.has('settings') && <div hidden={tab !== 'settings'}><Settings s={s} /></div>}
       </main>
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t-3 border-ink bg-paper pb-[env(safe-area-inset-bottom)]">
-        <div className="mx-auto grid max-w-md grid-cols-4 gap-2 p-2">
+        <div className="mx-auto grid max-w-md grid-cols-5 gap-1 p-2">
           {TABS.map(([id, icon, label]) => (
             <button key={id} data-tour={`tab-${id}`} onClick={() => setTab(id)} aria-current={tab === id ? 'page' : undefined}
               className={`flex min-h-14 flex-col items-center justify-center rounded-xl border-3 text-xs font-bold ${tab === id ? 'border-ink bg-sunny shadow-brut-sm' : 'border-transparent'}`}>

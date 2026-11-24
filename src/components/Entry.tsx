@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { db, deleteEntry, getRepeats, isRepeat, toggleRepeat, updateEntry, useLive } from '../db';
 import { toast } from '../fx';
-import { IOU, money, okDraft, today, UDHAAR, type Category, type Draft, type Entry, type Iou, type PhotoRef } from '../lib';
+import { IOU, ME, money, myShare, okDraft, today, UDHAAR, type Category, type Draft, type Entry, type Iou, type PhotoRef } from '../lib';
 
 export function EntryCard({ e, cat, cur, stamp, photo, onClick }: {
   e: Entry; cat: Category; cur: string; stamp?: boolean; photo?: boolean; onClick: () => void;
@@ -15,11 +15,52 @@ export function EntryCard({ e, cat, cur, stamp, photo, onClick }: {
         <span className="block truncate text-lg font-bold leading-tight">
           {e.quantity > 1 && `${e.quantity}× `}{e.item || cat.name}{photo && ' 📷'}
         </span>
-        <span className="block truncate text-xs font-medium">{e.iou ? `🤝 ${IOU[e.iou].label} ${e.person}` : cat.name}</span>
+        <span className="block truncate text-xs font-medium">
+          {e.iou ? `🤝 ${IOU[e.iou].label} ${e.person}` : e.split ? `🧳 ${who(e.paidBy ?? ME)} paid ${money(e.total ?? 0, cur)} · split ${e.split.length}` : cat.name}
+        </span>
       </span>
       <span className="shrink-0 font-display text-2xl">{money(e.amount, cur)}</span>
       {stamp && <span className="stamp">LOGGED!</span>}
     </button>
+  );
+}
+
+export const who = (p: string) => (p === ME ? 'You' : p);
+
+// Trip drafts: who paid the bill and who it's split between (equally).
+function TripSplit({ d, cur, onChange }: { d: Draft; cur: string; onChange: (patch: Partial<Draft>) => void }) {
+  const trip = useLive(() => db.trips.get(d.trip!), [d.trip]);
+  if (!trip) return null;
+  const people = [ME, ...trip.members];
+  const split = d.split ?? [];
+  const each = split.length ? Math.round(((d.amount ?? 0) / split.length) * 100) / 100 : 0;
+  return (
+    <div className="grid gap-2 rounded-lg border-3 border-dashed border-ink bg-sky/15 p-2">
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 flex-1 truncate font-bold">{trip.emoji} {trip.name}</span>
+        <button type="button" className="text-sm font-bold underline min-h-10" onClick={() => onChange({ trip: undefined, split: undefined, paidBy: undefined })}>Not a trip spend</button>
+      </div>
+      <label className="flex items-center gap-2 font-bold">
+        Paid by
+        <select className="input min-w-0 flex-1 font-bold" value={d.paidBy ?? ME} onChange={e => onChange({ paidBy: e.target.value })}>
+          {people.map(p => <option key={p} value={p}>{who(p)}</option>)}
+        </select>
+      </label>
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Split between">
+        {people.map(p => {
+          const on = split.includes(p);
+          return (
+            <button key={p} type="button" aria-pressed={on} onClick={() => onChange({ split: on ? split.filter(x => x !== p) : [...split, p] })}
+              className={`btn min-h-10 px-3 text-sm normal-case ${on ? 'bg-lime' : 'bg-white opacity-60'}`}>
+              {on ? '✓ ' : ''}{who(p)}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-sm font-bold">
+        {split.length ? `${money(each, cur)} each · your share ${money(myShare(d.amount ?? 0, split), cur)}` : 'Pick who shares this 👆'}
+      </p>
+    </div>
   );
 }
 
@@ -37,7 +78,7 @@ export function EntryFields({ d, cats, cur, onChange }: {
           onChange={e => onChange({ item: e.target.value })} />
         <label className={`input flex w-36 shrink-0 items-center gap-1 ${d.amount ? '' : 'bg-tomato/25'}`}>
           <span className="font-display text-xl">{cur}</span>
-          <input type="number" inputMode="decimal" min="0" step="any" placeholder="?" aria-label="Amount"
+          <input type="number" inputMode="decimal" min="0" step="any" placeholder="?" aria-label={d.trip ? 'Total bill' : 'Amount'}
             className="w-full min-w-0 bg-transparent font-display text-2xl outline-none" value={d.amount ?? ''}
             onChange={e => onChange({ amount: e.target.value === '' ? null : Number(e.target.value) })} />
         </label>
@@ -58,6 +99,7 @@ export function EntryFields({ d, cats, cur, onChange }: {
             aria-label="Person" placeholder="Who?" onChange={e => onChange({ person: e.target.value })} />
         </div>
       )}
+      {d.trip && !d.iou && <TripSplit d={d} cur={cur} onChange={onChange} />}
       <div className="flex flex-wrap items-center gap-3">
         <input type="date" className="input w-40 font-bold" value={d.date} aria-label="Date"
           onChange={e => onChange({ date: e.target.value || today() })} />
@@ -69,7 +111,7 @@ export function EntryFields({ d, cats, cur, onChange }: {
 
 export function EntrySheet({ entry, cats, cur, onClose }: { entry: Entry; cats: Category[]; cur: string; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
-  const [d, setD] = useState<Draft>({ ...entry, photos: [] });
+  const [d, setD] = useState<Draft>({ ...entry, amount: entry.trip ? entry.total ?? entry.amount : entry.amount, photos: [] }); // trip drafts edit the whole bill
   const [ready, setReady] = useState(false);
   const repeats = useLive(getRepeats);
 
